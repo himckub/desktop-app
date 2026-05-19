@@ -381,9 +381,16 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   };
   opts.signal?.addEventListener('abort', onAbort);
 
-  // 5. Outputs watcher — emits file_output events for any file written to the
-  //    session's outputs dir. Deduped by (name, size).
-  const seenOutputs = new Map<string, number>();
+  // 5. Outputs watcher — emits one file_output event per completed file write.
+  //    `fs.watch` fires repeatedly while a file is being written; if we emit
+  //    on every change we get multiple events per file (one per intermediate
+  //    size during the write). Debounce per filename and emit only after the
+  //    file has stopped growing — that way a single screenshot save produces
+  //    a single `file_output` event, regardless of how many `change` events
+  //    the OS produced during the write.
+  const OUTPUTS_DEBOUNCE_MS = 200;
+  const emittedOutputs = new Map<string, number>(); // last emitted size by filename
+  const outputsTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let outputsWatcher: ReturnType<typeof fs.watch> | null = null;
   let harnessWatcher: ReturnType<typeof fs.watch> | null = null;
   const harnessCheckTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -443,32 +450,45 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     try { harnessWatcher?.close(); } catch { /* already closed */ }
     for (const timer of harnessCheckTimers.values()) clearTimeout(timer);
     harnessCheckTimers.clear();
+    for (const timer of outputsTimers.values()) clearTimeout(timer);
+    outputsTimers.clear();
+  };
+
+  const emitOutputIfSettled = (filename: string): void => {
+    outputsTimers.delete(filename);
+    const filePath = path.join(outputsDir, filename);
+    let stat;
+    try { stat = fs.statSync(filePath); } catch { return; }
+    if (!stat.isFile()) return;
+    if (emittedOutputs.get(filename) === stat.size) return;
+    emittedOutputs.set(filename, stat.size);
+    const mime = mimeFromExt(filename);
+    engineLogger.info('engines.run.outputs.fileDetected', {
+      sessionId: opts.sessionId,
+      filename,
+      absPath: filePath,
+      bytes: stat.size,
+      mime,
+    });
+    opts.onEvent({
+      type: 'file_output',
+      name: filename,
+      path: filePath,
+      size: stat.size,
+      mime,
+    });
   };
 
   try {
     outputsWatcher = fs.watch(outputsDir, { persistent: false }, (_ev, filename) => {
       if (!filename || typeof filename !== 'string') return;
-      const filePath = path.join(outputsDir, filename);
-      let stat;
-      try { stat = fs.statSync(filePath); } catch { return; }
-      if (!stat.isFile()) return;
-      if (seenOutputs.get(filename) === stat.size) return;
-      seenOutputs.set(filename, stat.size);
-      const mime = mimeFromExt(filename);
-      engineLogger.info('engines.run.outputs.fileDetected', {
-        sessionId: opts.sessionId,
-        filename,
-        absPath: filePath,
-        bytes: stat.size,
-        mime,
-      });
-      opts.onEvent({
-        type: 'file_output',
-        name: filename,
-        path: filePath,
-        size: stat.size,
-        mime,
-      });
+      // Debounce: every change event resets the timer. Only after the file
+      // goes quiet for OUTPUTS_DEBOUNCE_MS do we read its final size and emit.
+      const existing = outputsTimers.get(filename);
+      if (existing) clearTimeout(existing);
+      const timer = setTimeout(() => emitOutputIfSettled(filename), OUTPUTS_DEBOUNCE_MS);
+      timer.unref?.();
+      outputsTimers.set(filename, timer);
     });
   } catch (err) {
     engineLogger.warn('engines.run.outputs.watchFailed', { outputsDir, error: (err as Error).message });
