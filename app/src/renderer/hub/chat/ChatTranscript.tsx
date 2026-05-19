@@ -273,6 +273,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
         <ChatTurn
           key={t.id}
           turn={t}
+          sessionId={sessionId}
           inflightSince={showThinking && i === turns.length - 1 ? since : undefined}
           onEditMessage={i === firstUserTurnIdx ? onEditMessage : undefined}
           onShare={i === firstUserTurnIdx ? onShare : undefined}

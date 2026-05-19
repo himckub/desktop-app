@@ -1714,6 +1714,33 @@ app.whenReady().then(async () => {
     return { revealed: true };
   });
 
+  // User-attached files (images, etc.) sent with a prompt are stored in
+  // the session_attachments table by turn_index. This handler returns
+  // metadata + a data URL so the renderer can <img src=...> them inline
+  // beside the originating user message bubble. Bytes never leak through
+  // raw — always base64-encoded into a data URL with the recorded MIME.
+  ipcMain.handle('sessions:get-attachments-by-turn', async (_event, payload: { sessionId: string; turnIndex: number }) => {
+    if (!payload || typeof payload !== 'object') throw new Error('payload required');
+    const sessionId = assertString(payload.sessionId, 'sessionId', 200);
+    const turnIndex = payload.turnIndex;
+    if (typeof turnIndex !== 'number' || !Number.isInteger(turnIndex) || turnIndex < 0) {
+      throw new Error('turnIndex must be a non-negative integer');
+    }
+    const rows = sessionManager.getAttachmentsByTurnIndex(sessionId, turnIndex);
+    const result = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      mime: r.mime,
+      size: r.size,
+      dataUrl: `data:${r.mime};base64,${Buffer.from(r.bytes).toString('base64')}`,
+    }));
+    mainLogger.info('main.sessions:get-attachments-by-turn', {
+      sessionId, turnIndex, count: result.length,
+      totalBytes: result.reduce((a, r) => a + r.size, 0),
+    });
+    return result;
+  });
+
   ipcMain.handle('sessions:open-in-editor', async (_event, payload: { editorId: string; filePath: string }) => {
     mainLogger.info('main.sessions:open-in-editor.enter', {
       editorId: payload?.editorId,

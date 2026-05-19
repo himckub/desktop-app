@@ -41,10 +41,12 @@ function EditIcon(): React.ReactElement {
   );
 }
 
-function UserBubble({ content, onEdit, onShare }: {
+function UserBubble({ content, onEdit, onShare, sessionId, attachmentTurnIndex }: {
   content: string;
   onEdit?: (text: string) => void;
   onShare?: () => void;
+  sessionId?: string;
+  attachmentTurnIndex?: number;
 }): React.ReactElement {
   const { quote, message } = parseUserMessage(content);
   const body = message || ''; // message can be empty if user sent quote-only
@@ -56,6 +58,31 @@ function UserBubble({ content, onEdit, onShare }: {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(body);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Files the user attached to this turn (pasted images, drag-drops).
+  // Fetched lazily over IPC so we don't bloat the session payload.
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
+  useEffect(() => {
+    if (!sessionId || attachmentTurnIndex === undefined) {
+      setAttachments([]);
+      return;
+    }
+    let cancelled = false;
+    const api = (window as unknown as { electronAPI?: { sessions?: { getAttachmentsByTurn?: (s: string, t: number) => Promise<Array<{ id: number; name: string; mime: string; size: number; dataUrl: string }>> } } }).electronAPI;
+    api?.sessions?.getAttachmentsByTurn?.(sessionId, attachmentTurnIndex)
+      .then((rows) => {
+        if (cancelled) return;
+        setAttachments(rows.map((r) => ({
+          key: String(r.id),
+          name: r.name,
+          mime: r.mime,
+          src: r.dataUrl,
+          meta: formatBytes(r.size),
+        })));
+      })
+      .catch((err) => { console.error('[UserBubble] getAttachmentsByTurn failed', err); });
+    return () => { cancelled = true; };
+  }, [sessionId, attachmentTurnIndex]);
 
   const resizeEditArea = (): void => {
     const ta = editTextareaRef.current;
@@ -139,6 +166,11 @@ function UserBubble({ content, onEdit, onShare }: {
 
   return (
     <div className="chat-bubble__wrap">
+      {attachments.length > 0 && (
+        <div className="chat-bubble__attachments">
+          <AttachmentList items={attachments} variant="grid" />
+        </div>
+      )}
       <div className={`chat-bubble${clamped ? ' chat-bubble--clamped' : ''}`}>
         {quote && (
           <div className="chat-bubble__quote">{quote}</div>
@@ -194,6 +226,9 @@ interface ChatTurnProps {
   onEditMessage?: (text: string) => void;
   onShare?: () => void;
   isLatest?: boolean;
+  /** Threaded through to UserBubble so it can fetch attachments persisted
+   *  in session_attachments for this turn's `attachmentTurnIndex`. */
+  sessionId?: string;
 }
 
 function AssistantActions({
@@ -803,7 +838,7 @@ function InflightLabel({ since }: { since: number }): React.ReactElement {
   );
 }
 
-export function ChatTurn({ turn, inflightSince, onEditMessage, onShare, isLatest }: ChatTurnProps): React.ReactElement {
+export function ChatTurn({ turn, inflightSince, onEditMessage, onShare, isLatest, sessionId }: ChatTurnProps): React.ReactElement {
   const showInflight = inflightSince !== undefined;
   return (
     <div className={`chat-turn${isLatest ? ' chat-turn--latest' : ''}`}>
@@ -812,6 +847,8 @@ export function ChatTurn({ turn, inflightSince, onEditMessage, onShare, isLatest
           content={turn.userEntry.content}
           onEdit={onEditMessage}
           onShare={onShare}
+          sessionId={sessionId}
+          attachmentTurnIndex={turn.userEntry.attachmentTurnIndex}
         />
       )}
       {(showInflight || turn.agentEntries.length > 0 || isLatest) && (
