@@ -119,15 +119,16 @@ export function BrowserPreview({ sessionId, onExpand }: BrowserPreviewProps): Re
     setTimeout(() => onExpand(), 220);
   }, [onExpand, sessionId]);
 
-  if (!sessionInfo.hasBrowser) return null;
+  // Don't render at all until the session has a live URL. The placeholder
+  // card with the default icon is visual noise before the browser has
+  // actually navigated anywhere — wait for a real page before showing it.
+  if (!sessionInfo.hasBrowser || !hasPreviewUrl) return null;
 
   return (
     <div className="browser-preview__wrap">
-      {hostLabel && (
-        <span className="browser-preview__url" title={sessionInfo.lastUrl ?? undefined}>
-          {hostLabel}
-        </span>
-      )}
+      <span className="browser-preview__url" title={sessionInfo.lastUrl ?? undefined}>
+        {hostLabel}
+      </span>
       <button
         type="button"
         className={`browser-preview${expanding ? ' browser-preview--expanding' : ''}`}
