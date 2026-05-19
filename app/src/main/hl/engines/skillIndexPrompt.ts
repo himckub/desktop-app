@@ -29,9 +29,32 @@ export const SKILL_DISCOVERY_AND_LIFECYCLE_LINES = [
  * defines the visual rules (borders/shadows/palette); this constant only
  * tells the agent the channel exists and what theme to target.
  */
+/**
+ * Active-palette summary the agent can paste verbatim. Kept in sync with
+ * the 'neobrutalist-html' interaction skill — change them together.
+ */
+const ACTIVE_PALETTE = {
+  light: {
+    cardBg: '#f4ecd8',
+    border: '#000',
+    shadow: '#000',
+    fg: '#000',
+    accents: 'red #ff2b2b, blue #1a73ff, green #00c853, gold #ffd400',
+  },
+  dark: {
+    cardBg: '#1c1c20',
+    border: '#f4ecd8',
+    shadow: '#f4ecd8',
+    fg: '#f4ecd8',
+    accents: 'red #ff5252, blue #4ea3ff, green #3ddc84, gold #ffd400',
+  },
+} as const;
+
 export function htmlBlockGuidanceLines(theme: 'light' | 'dark' = 'dark'): string[] {
+  const p = ACTIVE_PALETTE[theme];
   return [
-    `UI THEME: ${theme}. When you emit a \`\`\`html block, choose colors that match this theme (see the 'neobrutalist-html' interaction skill for the per-theme palette).`,
+    `UI THEME: ${theme}. When you emit a \`\`\`html block, use the active palette below. The full per-theme reference lives in the 'neobrutalist-html' interaction skill.`,
+    `Active palette — card bg ${p.cardBg}, border ${p.border}, shadow ${p.shadow}, foreground ${p.fg}. Accents: ${p.accents}. Pick one bold accent + one secondary per artifact.`,
     'HTML blocks are an optional output channel — use them when layout helps the reader (plans, comparisons, status, timelines, diffs). Conversational replies, tool previews, and short answers should stay as plain markdown.',
     'When you emit an HTML block, keep it self-contained: inline styles or a single inline <style> tag are fine; do not reference external stylesheets, scripts, fonts, or images by URL — the sandbox blocks them.',
   ];
