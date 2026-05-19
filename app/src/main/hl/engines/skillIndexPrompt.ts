@@ -17,6 +17,22 @@ export const SKILL_DISCOVERY_AND_LIFECYCLE_LINES = [
   'Do not write skills for one-off facts/calculations, temporary page state, secrets/tokens, private account details, failed/speculative workflows, or content that belongs in the task output.',
 ];
 
+/**
+ * Provider-neutral nudge that lets the renderer surface structured content
+ * (plans, comparisons, multi-step explanations, diffs, status reports) as
+ * sandboxed HTML artifacts instead of inline markdown. The renderer
+ * extracts ```html fenced blocks from the assistant's output and renders
+ * them in an iframe — static HTML + CSS only, no JavaScript executes.
+ *
+ * Spread these lines into every engine adapter's system prompt so the
+ * behavior is uniform across claude-code, codex, and browsercode/opencode.
+ */
+export const HTML_BLOCK_GUIDANCE_LINES = [
+  'For multi-step plans, side-by-side comparisons, structured explanations, diffs, and status reports, emit the content as a single fenced ```html block. The desktop app renders these as a sandboxed visual artifact (static HTML + CSS only — no JavaScript executes).',
+  'Keep conversational replies, tool output previews, short answers, and code samples as regular markdown. HTML blocks are for structure that benefits from layout (lists with status, two-column comparisons, tables, timelines), not for paragraphs.',
+  'When you emit an HTML block, keep it self-contained: inline styles or a <style> tag are fine; do not reference external stylesheets, scripts, or images by URL (they will not load).',
+];
+
 function normalizeSlash(value: string): string {
   return value.split(path.sep).join('/');
 }

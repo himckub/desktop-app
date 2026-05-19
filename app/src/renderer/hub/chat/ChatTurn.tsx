@@ -11,6 +11,8 @@ import { useCyclingVerb } from './spinnerVerbs';
 import { formatUserMessageWithQuote, parseUserMessage } from './parseUserMessage';
 import { FinderIcon } from '@/renderer/shared/editorIcons';
 import { AttachmentList, type AttachmentItem } from '../chat-v2/Attachments';
+import { extractAll } from '../chat-v2/htmlBlocks';
+import { HtmlBlock } from '../chat-v2/HtmlBlock';
 
 const USER_BUBBLE_CLAMP_LINES = 10;
 const USER_BUBBLE_CLAMP_CHARS = 600;
@@ -405,21 +407,40 @@ function StreamingProse({
   target: string;
   done: boolean;
 }): React.ReactElement {
-  // If we mount with `done` already true (re-opening a finished task), skip
-  // the animation entirely. Without this the typewriter would re-stream every
-  // completed message from scratch each time you reopen the chat.
-  const shown = useTypewriter(target, 110, done);
-  const caughtUp = shown.length >= target.length;
-  const stillStreaming = !done || !caughtUp;
+  // First, run the html-block extractor over the full target. If the
+  // model emitted any ```html / ```htmlview fenced artifacts, render
+  // them as <HtmlBlock> instead of letting the markdown renderer turn
+  // them into a code block. Cheap to run (regex-based, pure) so re-
+  // execute on every render — no need to memoize.
+  const events = extractAll([target]);
+  const hasHtmlBlock = events.some((e) => e.kind === 'html_block');
+
+  // If the model didn't emit any html blocks, preserve the existing
+  // typewriter + stable-markdown flow exactly as it was.
+  if (!hasHtmlBlock) {
+    const shown = useTypewriter(target, 110, done);
+    const caughtUp = shown.length >= target.length;
+    const stillStreaming = !done || !caughtUp;
+    return (
+      <div className={`chat-step__assistant${stillStreaming ? ' chat-step__assistant--streaming' : ''}`}>
+        <Markdown source={stableMarkdown(shown) || (done ? '(done)' : '')} />
+      </div>
+    );
+  }
+
+  // Html blocks present — skip the typewriter (it doesn't compose well
+  // with iframe artifacts that need a stable measurement frame) and
+  // render each segment in document order.
   return (
-    <div className={`chat-step__assistant${stillStreaming ? ' chat-step__assistant--streaming' : ''}`}>
-      {/* Render markdown of the typewritten substring, with any unclosed
-          fences temporarily closed so the parser doesn't flip the rest of the
-          document into a code block as it streams in. Avoids both the
-          "partial-markdown rewriting" jitter AND the streaming→markdown
-          handoff layout shift, by keeping one consistent renderer the whole
-          time. */}
-      <Markdown source={stableMarkdown(shown) || (done ? '(done)' : '')} />
+    <div className={`chat-step__assistant${!done ? ' chat-step__assistant--streaming' : ''}`}>
+      {events.map((e, i) => {
+        if (e.kind === 'text') {
+          return e.text.trim().length === 0
+            ? null
+            : <Markdown key={i} source={stableMarkdown(e.text)} />;
+        }
+        return <HtmlBlock key={i} content={e.content} complete={e.complete} tag={e.tag} />;
+      })}
     </div>
   );
 }
