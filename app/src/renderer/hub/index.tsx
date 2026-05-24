@@ -17,14 +17,24 @@ import '@/renderer/components/base/components.css';
 import './hub.css';
 import { initThemeMode } from '@/renderer/design/themeMode';
 import { makeLogger } from '@/renderer/shared/logger';
+import { isIgnorableRendererMessage } from '@/shared/rendererNoise';
 
 // Apply shell theme — hub uses the same dark palette
 document.documentElement.dataset.theme = 'shell';
+document.documentElement.dataset.platform = detectPlatform();
 initThemeMode();
+
+function detectPlatform(): 'mac' | 'win' | 'linux' {
+  const ua = navigator.userAgent || '';
+  if (/Mac|iPhone|iPad/i.test(ua)) return 'mac';
+  if (/Windows/i.test(ua)) return 'win';
+  return 'linux';
+}
 
 const log = makeLogger('hub');
 
 window.addEventListener('error', (e) => {
+  if (isIgnorableRendererMessage(e.message)) return;
   log.error('renderer.error', { message: e.message, file: e.filename, line: e.lineno });
 });
 

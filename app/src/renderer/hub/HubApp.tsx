@@ -6,7 +6,7 @@ import { CommandBar } from './CommandBar';
 import { SettingsPane } from './SettingsPane';
 import { useVimKeys } from './useVimKeys';
 import { useSessionsQuery, useUpdateSession } from './useSessionsQuery';
-import { MemoryIndicator } from './MemoryIndicator';
+import { Navbar } from './Navbar';
 import { Sidebar } from './Sidebar';
 import { MOCK_SESSIONS } from './mock-data';
 import type { AgentSession, HlEvent } from './types';
@@ -16,7 +16,6 @@ import { orderSessionsForSidebar } from './sessionOrdering';
 import { ChatPane } from './chat/ChatPane';
 import { useUIStore } from './state/uiStore';
 import { useSessionsBridge } from './state/useSessionsBridge';
-import buLogoWhite from './bu-logo-white.svg';
 
 type ViewMode = 'dashboard' | 'grid' | 'chat' | 'settings';
 type SettingsOpenPayload = {
@@ -25,14 +24,6 @@ type SettingsOpenPayload = {
 };
 
 let sessionCounter = MOCK_SESSIONS.length + 1;
-
-function PlusIcon(): React.ReactElement {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 export function HubApp(): React.ReactElement {
   const isMock = import.meta.env.VITE_MOCK_MODE === '1';
@@ -469,52 +460,18 @@ export function HubApp(): React.ReactElement {
 
   return (
     <div className="hub-root">
-      <header className="hub-toolbar">
-        <div className="hub-toolbar__left">
-          <button
-            type="button"
-            className="hub-toolbar__brand"
-            onClick={() => setViewMode('dashboard')}
-            aria-label="Go to dashboard"
-            data-tip="Dashboard"
-            disabled={viewMode === 'dashboard'}
-          >
-            <img src={buLogoWhite} alt="" className="hub-toolbar__brand-logo" />
-            <span className="hub-toolbar__brand-text">Browser Use</span>
-          </button>
-          <MemoryIndicator
-            onOpenSettings={() => openSettingsPage()}
-            settingsShortcut={shortcutFor('goto.settings')}
-          />
-        </div>
-        <div className="hub-toolbar__center" />
-        <div className="hub-toolbar__right">
-          {/* Grid density + pager removed — single-pane (1x1) layout. */}
-          {viewMode !== 'dashboard' && (
-            <button
-              className="hub-toolbar__new-btn"
-              onClick={() => openPill()}
-              aria-label="New agent"
-              data-tip={tip('New agent', 'action.createPane')}
-            >
-              <PlusIcon />
-              <span className="hub-toolbar__new-label">New agent</span>
-            </button>
-          )}
-          {zoomFactor !== 1.0 && (
-            <button
-              className="hub-toolbar__zoom"
-              onClick={() => {
-                setZoomFactor(1.0);
-                localStorage.setItem('hub-zoom-factor', '1');
-              }}
-              title={`Reset zoom (${vim.formatShortcut('CommandOrControl+0')})`}
-            >
-              {Math.round(zoomFactor * 100)}%
-            </button>
-          )}
-        </div>
-      </header>
+      <Navbar
+        isDashboard={viewMode === 'dashboard'}
+        onGoDashboard={() => setViewMode('dashboard')}
+        onOpenSettings={() => openSettingsPage()}
+        settingsShortcut={shortcutFor('goto.settings')}
+        zoomFactor={zoomFactor}
+        onResetZoom={() => {
+          setZoomFactor(1.0);
+          localStorage.setItem('hub-zoom-factor', '1');
+        }}
+        resetZoomTitle={`Reset zoom (${vim.formatShortcut('CommandOrControl+0')})`}
+      />
 
       <div className="hub-body" data-tabs-position={tabsPosition}>
       <Sidebar
