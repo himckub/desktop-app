@@ -13,6 +13,7 @@ import { FinderIcon } from '@/renderer/shared/editorIcons';
 import { AttachmentList, type AttachmentItem } from '../chat-v2/Attachments';
 import { extractAll } from '../chat-v2/htmlBlocks';
 import { HtmlBlock } from '../chat-v2/HtmlBlock';
+import { OptionList } from '../chat-v2/OptionList';
 
 const USER_BUBBLE_CLAMP_LINES = 10;
 const USER_BUBBLE_CLAMP_CHARS = 600;
@@ -403,21 +404,21 @@ function stableMarkdown(s: string): string {
 function StreamingProse({
   target,
   done,
+  sessionId,
 }: {
   target: string;
   done: boolean;
+  sessionId?: string;
 }): React.ReactElement {
-  // First, run the html-block extractor over the full target. If the
-  // model emitted any ```html / ```htmlview fenced artifacts, render
-  // them as <HtmlBlock> instead of letting the markdown renderer turn
-  // them into a code block. Cheap to run (regex-based, pure) so re-
-  // execute on every render — no need to memoize.
+  // Run the block extractor over the full target. Recognizes `html`,
+  // `htmlview`, and `options` fences and emits structured events for
+  // each. Cheap to run (regex-based, pure) — re-execute on every render.
   const events = extractAll([target]);
-  const hasHtmlBlock = events.some((e) => e.kind === 'html_block');
+  const hasStructuredBlock = events.some((e) => e.kind === 'html_block' || e.kind === 'option_list');
 
-  // If the model didn't emit any html blocks, preserve the existing
-  // typewriter + stable-markdown flow exactly as it was.
-  if (!hasHtmlBlock) {
+  // If the model didn't emit any structured blocks, preserve the
+  // existing typewriter + stable-markdown flow exactly as it was.
+  if (!hasStructuredBlock) {
     const shown = useTypewriter(target, 110, done);
     const caughtUp = shown.length >= target.length;
     const stillStreaming = !done || !caughtUp;
@@ -428,8 +429,8 @@ function StreamingProse({
     );
   }
 
-  // Html blocks present — skip the typewriter (it doesn't compose well
-  // with iframe artifacts that need a stable measurement frame) and
+  // Structured blocks present — skip the typewriter (it doesn't
+  // compose well with iframe artifacts or interactive pickers) and
   // render each segment in document order.
   return (
     <div className={`chat-step__assistant${!done ? ' chat-step__assistant--streaming' : ''}`}>
@@ -439,7 +440,18 @@ function StreamingProse({
             ? null
             : <Markdown key={i} source={stableMarkdown(e.text)} />;
         }
-        return <HtmlBlock key={i} content={e.content} complete={e.complete} tag={e.tag} />;
+        if (e.kind === 'html_block') {
+          return <HtmlBlock key={i} content={e.content} complete={e.complete} tag={e.tag} />;
+        }
+        return (
+          <OptionList
+            key={i}
+            payload={e.parsed}
+            complete={e.complete}
+            error={e.error}
+            sessionId={sessionId}
+          />
+        );
       })}
     </div>
   );
@@ -717,7 +729,7 @@ function normalizeProse(s: string): string {
   return (s || '').trim().replace(/\s+/g, ' ');
 }
 
-function renderAgentEntries(entries: OutputEntry[], isLive: boolean): React.ReactElement[] {
+function renderAgentEntries(entries: OutputEntry[], isLive: boolean, sessionId?: string): React.ReactElement[] {
   // Find the trailing prose target: the last `done`, or the trailing live
   // `thinking` if no `done` has landed yet. Both get suppressed from regular
   // per-entry rendering and collapsed into a single <StreamingProse> at the
@@ -836,7 +848,12 @@ function renderAgentEntries(entries: OutputEntry[], isLive: boolean): React.Reac
 
   if (proseTarget) {
     target.push(
-      <StreamingProse key="prose-tail" target={proseTarget} done={proseDone} />,
+      <StreamingProse
+        key="prose-tail"
+        target={proseTarget}
+        done={proseDone}
+        sessionId={sessionId}
+      />,
     );
   }
 
@@ -878,7 +895,7 @@ export function ChatTurn({ turn, inflightSince, onEditMessage, onShare, isLatest
       {(showInflight || turn.agentEntries.length > 0 || isLatest) && (
         <div className="chat-agent">
           {showInflight && <InflightLabel since={inflightSince!} />}
-          {renderAgentEntries(turn.agentEntries, showInflight)}
+          {renderAgentEntries(turn.agentEntries, showInflight, sessionId)}
           {!showInflight && isLatest && (
             <AssistantActions
               content={turn.agentEntries.find((e) => e.type === 'done')?.content ?? ''}
