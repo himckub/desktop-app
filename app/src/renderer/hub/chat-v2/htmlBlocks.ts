@@ -1,5 +1,5 @@
 /**
- * Streaming `html` / `htmlview` / `options` fenced-code-block extractor.
+ * Streaming `html` / `htmlview` / `options` / `ask` fenced-code-block extractor.
  *
  * Agents (claude-code, codex, browsercode/opencode) stream their output as
  * many small text deltas. When the model emits a fenced block like:
@@ -38,8 +38,16 @@ export interface OptionItem {
   merchant?: string;
 }
 
-export interface OptionListPayload {
-  prompt?: string;
+/**
+ * One labeled group of options inside a multi-section picker (e.g. the
+ * "Patty" sub-grid in a burger-ingredients block). A legacy
+ * single-section block is normalized by the parser into one
+ * label-less section so the component always iterates `sections[]`.
+ */
+export interface OptionListSection {
+  /** Heading shown above this section's grid. Omitted in legacy
+   *  single-section payloads. */
+  label?: string;
   multiSelect: boolean;
   min: number;
   max: number;
@@ -47,15 +55,67 @@ export interface OptionListPayload {
    *  cards align vertically — missing values render as "—". When absent,
    *  the renderer uses the union of every option's `fields` keys. */
   fieldSchema?: string[];
+  /** When true (default), the renderer appends a dashed "Other —
+   *  describe…" card to the section's grid that expands into a text
+   *  input on click. Set false only when the listed options are
+   *  truly exhaustive. */
+  allowOther: boolean;
   options: OptionItem[];
 }
 
-export type FenceTag = 'html' | 'htmlview' | 'options';
+export interface OptionListPayload {
+  prompt?: string;
+  /** One-or-more selectable sections. Single-section payloads (legacy
+   *  shape with `options` at top level) get normalized to a sections
+   *  array of length 1. Multi-section payloads (one fence covering a
+   *  full multi-category ask like "burger ingredients") declare every
+   *  section here, and the renderer stacks them vertically inside one
+   *  picker shell with a single shared Confirm at the foot. */
+  sections: OptionListSection[];
+}
+
+/**
+ * One option inside an `ask` block's question. Text-only — no image,
+ * no fields. The renderer adds an automatic "Other" option with a
+ * text input affordance unless the question disables it explicitly.
+ */
+export interface AskOption {
+  /** Short display label (1-5 words). The line the user clicks. */
+  label: string;
+  /** Optional context: tradeoff, explanation, pricing hint. */
+  description?: string;
+}
+
+/**
+ * One question inside an `ask` form. Mirrors the shape Claude Code's
+ * native AskUserQuestion tool uses — that schema is well-designed and
+ * familiar to agents, so we keep it verbatim except that this is OUR
+ * channel (works for codex / opencode too via the skill).
+ */
+export interface AskQuestion {
+  question: string;
+  /** Short chip label shown above the question (≤12 chars). */
+  header?: string;
+  multiSelect: boolean;
+  options: AskOption[];
+  /** When true (default), an "Other…" affordance is appended to the
+   *  options so the user can type a custom answer. Set false to lock
+   *  the user to the listed options. */
+  allowOther: boolean;
+}
+
+export interface AskFormPayload {
+  prompt?: string;
+  questions: AskQuestion[];
+}
+
+export type FenceTag = 'html' | 'htmlview' | 'options' | 'ask';
 
 export type ExtractEvent =
   | { kind: 'text'; text: string }
   | { kind: 'html_block'; content: string; tag: 'html' | 'htmlview'; complete: boolean }
-  | { kind: 'option_list'; complete: boolean; raw: string; parsed: OptionListPayload | null; error?: string };
+  | { kind: 'option_list'; complete: boolean; raw: string; parsed: OptionListPayload | null; error?: string }
+  | { kind: 'ask_form'; complete: boolean; raw: string; parsed: AskFormPayload | null; error?: string };
 
 /**
  * Stateful, chunk-fed extractor. Safe to call `feed` once per streamed
@@ -180,8 +240,8 @@ export function extractAll(chunks: string[]): ExtractEvent[] {
  * newline arrives in the next chunk); LAX also accepts end-of-input
  * (used only during the final `end()` flush).
  */
-const OPENER_STRICT = /(^|\n)```(html|htmlview|options)[ \t]*\r?\n/;
-const OPENER_LAX = /(^|\n)```(html|htmlview|options)[ \t]*(\r?\n|$)/;
+const OPENER_STRICT = /(^|\n)```(html|htmlview|options|ask)[ \t]*\r?\n/;
+const OPENER_LAX = /(^|\n)```(html|htmlview|options|ask)[ \t]*(\r?\n|$)/;
 
 function findOpener(buf: string, flush: boolean): { start: number; end: number; tag: FenceTag } | null {
   const re = flush ? OPENER_LAX : OPENER_STRICT;
@@ -253,7 +313,11 @@ function emitBlock(tag: FenceTag, content: string, complete: boolean): ExtractEv
     const { parsed, error } = parseOptionList(content, { partial: !complete });
     return { kind: 'option_list', complete, raw: content, parsed, error };
   }
-  return { kind: 'html_block', content, tag, complete };
+  if (tag === 'ask') {
+    const { parsed, error } = parseAskForm(content, { partial: !complete });
+    return { kind: 'ask_form', complete, raw: content, parsed, error };
+  }
+  return { kind: 'html_block', content, tag: tag as 'html' | 'htmlview', complete };
 }
 
 /**
@@ -285,53 +349,79 @@ export function parseOptionList(raw: string, opts: { partial?: boolean } = {}): 
       return { parsed: null, error: 'expected json object at top level' };
     }
     const obj = data as Record<string, unknown>;
-    const rawOptions = obj.options;
-    if (!Array.isArray(rawOptions)) {
-      return { parsed: null, error: 'missing required field "options" (array)' };
+    const prompt = typeof obj.prompt === 'string' ? obj.prompt : undefined;
+
+    // New shape: top-level `sections` array. Each section is its own
+    // labeled sub-picker with its own selection bounds + options.
+    if (Array.isArray(obj.sections)) {
+      const sections: OptionListSection[] = [];
+      for (const rawSection of obj.sections) {
+        const section = validateSection(rawSection);
+        if (section) sections.push(section);
+      }
+      if (sections.length === 0) {
+        return { parsed: null, error: 'no valid sections (each needs at least one valid option)' };
+      }
+      return { parsed: { prompt, sections } };
     }
-    const options: OptionItem[] = [];
-    for (const item of rawOptions) {
-      const valid = validateOption(item);
-      if (valid) options.push(valid);
+
+    // Legacy shape: top-level `options` becomes a single unnamed section.
+    if (Array.isArray(obj.options)) {
+      const section = validateSection({
+        // Hoist top-level selection / schema fields into the section.
+        multiSelect: obj.multiSelect,
+        min: obj.min,
+        max: obj.max,
+        fieldSchema: obj.fieldSchema,
+        allowOther: obj.allowOther,
+        options: obj.options,
+      });
+      if (!section) {
+        return { parsed: null, error: 'no valid options (each option needs id, image, title)' };
+      }
+      return { parsed: { prompt, sections: [section] } };
     }
-    if (options.length === 0) {
-      return { parsed: null, error: 'no valid options (each option needs id, image, title)' };
-    }
-    return { parsed: finalizePayload(obj, options) };
+
+    return { parsed: null, error: 'missing required field "options" or "sections"' };
   }
 
   // 2) Partial parse path — only when explicitly requested (mid-stream).
   if (!opts.partial) {
     return { parsed: null, error: 'invalid json' };
   }
-  const partial = extractPartialPayload(raw);
-  if (partial.options.length === 0) {
-    return { parsed: null };
-  }
-  return {
-    parsed: {
-      prompt: partial.prompt,
-      multiSelect: partial.multiSelect ?? false,
-      min: partial.min ?? 1,
-      max: partial.max ?? partial.options.length,
-      options: partial.options,
-    },
-  };
+  return extractPartial(raw);
 }
 
-function finalizePayload(obj: Record<string, unknown>, options: OptionItem[]): OptionListPayload {
-  const multiSelect = typeof obj.multiSelect === 'boolean' ? obj.multiSelect : false;
-  const min = typeof obj.min === 'number' && Number.isFinite(obj.min) ? Math.max(0, Math.floor(obj.min)) : 1;
-  const max = typeof obj.max === 'number' && Number.isFinite(obj.max) ? Math.max(min, Math.floor(obj.max)) : (multiSelect ? options.length : 1);
-  const fieldSchema = Array.isArray(obj.fieldSchema)
-    ? (obj.fieldSchema as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0)
+/**
+ * Validate one section descriptor — used for both the multi-section
+ * path (per element of `sections`) and the legacy-single-section path
+ * (where the parser hoists the top-level options/multiSelect/min/max
+ * into a synthetic section). Returns null when fewer than one valid
+ * option survives.
+ */
+function validateSection(raw: unknown): OptionListSection | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (!Array.isArray(o.options)) return null;
+  const options: OptionItem[] = [];
+  for (const item of o.options) {
+    const valid = validateOption(item);
+    if (valid) options.push(valid);
+  }
+  if (options.length === 0) return null;
+  const multiSelect = typeof o.multiSelect === 'boolean' ? o.multiSelect : false;
+  const min = typeof o.min === 'number' && Number.isFinite(o.min) ? Math.max(0, Math.floor(o.min)) : 1;
+  const max = typeof o.max === 'number' && Number.isFinite(o.max) ? Math.max(min, Math.floor(o.max)) : (multiSelect ? options.length : 1);
+  const fieldSchema = Array.isArray(o.fieldSchema)
+    ? (o.fieldSchema as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0)
     : undefined;
   return {
-    prompt: typeof obj.prompt === 'string' ? obj.prompt : undefined,
+    label: typeof o.label === 'string' && o.label.trim().length > 0 ? o.label.trim() : undefined,
     multiSelect,
     min,
     max,
     fieldSchema: fieldSchema && fieldSchema.length > 0 ? fieldSchema : undefined,
+    allowOther: typeof o.allowOther === 'boolean' ? o.allowOther : true,
     options,
   };
 }
@@ -342,41 +432,88 @@ function finalizePayload(obj: Record<string, unknown>, options: OptionItem[]): O
  * multiSelect, min, max) that have already streamed in. Tolerant — any
  * malformed individual object is silently skipped.
  */
-function extractPartialPayload(raw: string): {
-  options: OptionItem[];
-  prompt?: string;
-  multiSelect?: boolean;
-  min?: number;
-  max?: number;
-} {
-  const out: { options: OptionItem[]; prompt?: string; multiSelect?: boolean; min?: number; max?: number } = { options: [] };
-
-  // Pull top-level scalars from the prefix via shallow regex. Good enough
-  // for the streaming case where the prefix is well-formed up to the
-  // truncation point.
+function extractPartial(raw: string): { parsed: OptionListPayload | null; error?: string } {
+  // Prompt is shared across both shapes; pull it from the prefix.
+  let prompt: string | undefined;
   const promptMatch = raw.match(/"prompt"\s*:\s*"((?:\\.|[^"\\])*)"/);
   if (promptMatch) {
-    try { out.prompt = JSON.parse(`"${promptMatch[1]}"`); } catch { /* leave undefined */ }
+    try { prompt = JSON.parse(`"${promptMatch[1]}"`); } catch { /* leave undefined */ }
   }
+
+  // New shape: walk `sections: [...]` for complete section objects.
+  const sectionsBracket = findArrayStart(raw, 'sections');
+  if (sectionsBracket !== -1) {
+    const sections: OptionListSection[] = [];
+    for (const slice of walkBalancedObjects(raw, sectionsBracket)) {
+      try {
+        const obj = JSON.parse(slice);
+        const v = validateSection(obj);
+        if (v) sections.push(v);
+      } catch {
+        // malformed section — skip
+      }
+    }
+    if (sections.length === 0) return { parsed: null };
+    return { parsed: { prompt, sections } };
+  }
+
+  // Legacy shape: walk `options: [...]` for complete option objects, then
+  // wrap them in a single unnamed section. Per-section bounds are pulled
+  // from the prefix scalars (multiSelect / min / max), which is good
+  // enough for streaming alignment.
+  const optionsBracket = findArrayStart(raw, 'options');
+  if (optionsBracket === -1) return { parsed: null };
+  const options: OptionItem[] = [];
+  for (const slice of walkBalancedObjects(raw, optionsBracket)) {
+    try {
+      const obj = JSON.parse(slice);
+      const v = validateOption(obj);
+      if (v) options.push(v);
+    } catch {
+      // malformed option — skip
+    }
+  }
+  if (options.length === 0) return { parsed: null };
+
   const msMatch = raw.match(/"multiSelect"\s*:\s*(true|false)/);
-  if (msMatch) out.multiSelect = msMatch[1] === 'true';
+  const multiSelect = msMatch ? msMatch[1] === 'true' : false;
   const minMatch = raw.match(/"min"\s*:\s*(-?\d+)/);
-  if (minMatch) out.min = parseInt(minMatch[1], 10);
+  const min = minMatch ? parseInt(minMatch[1], 10) : 1;
   const maxMatch = raw.match(/"max"\s*:\s*(-?\d+)/);
-  if (maxMatch) out.max = parseInt(maxMatch[1], 10);
+  const max = maxMatch ? Math.max(min, parseInt(maxMatch[1], 10)) : (multiSelect ? options.length : 1);
+  return {
+    parsed: {
+      prompt,
+      sections: [{
+        multiSelect,
+        min,
+        max,
+        allowOther: true,
+        options,
+      }],
+    },
+  };
+}
 
-  // Locate `"options":[` and walk forward extracting balanced {...}.
-  const arrStart = raw.search(/"options"\s*:\s*\[/);
-  if (arrStart === -1) return out;
-  const bracketIdx = raw.indexOf('[', arrStart);
-  if (bracketIdx === -1) return out;
+/** Locate the `[` that opens an array named `key` at the top level of
+ *  the JSON prefix. Returns the index of `[` or -1 if not found. */
+function findArrayStart(raw: string, key: string): number {
+  const re = new RegExp(`"${key}"\\s*:\\s*\\[`);
+  const m = re.exec(raw);
+  if (!m) return -1;
+  return raw.indexOf('[', m.index);
+}
 
+/** Walk a `[...]` array starting at `bracketIdx`, yielding the source
+ *  slice of every fully-closed `{...}` object inside. Stops as soon as
+ *  an unclosed object is encountered (partial — wait for more bytes). */
+function* walkBalancedObjects(raw: string, bracketIdx: number): Generator<string> {
   let i = bracketIdx + 1;
   while (i < raw.length) {
     // Skip whitespace and commas between objects.
     while (i < raw.length && (raw[i] === ' ' || raw[i] === '\t' || raw[i] === '\n' || raw[i] === '\r' || raw[i] === ',')) i++;
-    if (i >= raw.length) break;
-    if (raw[i] === ']') break;
+    if (i >= raw.length) return;
+    if (raw[i] === ']') return;
     if (raw[i] !== '{') { i++; continue; }
 
     const start = i;
@@ -399,17 +536,9 @@ function extractPartialPayload(raw: string): {
         if (depth === 0) { i++; closed = true; break; }
       }
     }
-    if (!closed) break; // partial object — stop and wait for more bytes
-    const slice = raw.slice(start, i);
-    try {
-      const obj = JSON.parse(slice);
-      const v = validateOption(obj);
-      if (v) out.options.push(v);
-    } catch {
-      // malformed — skip
-    }
+    if (!closed) return; // partial object — stop and wait for more bytes
+    yield raw.slice(start, i);
   }
-  return out;
 }
 
 function validateOption(raw: unknown): OptionItem | null {
@@ -447,4 +576,106 @@ function validateOption(raw: unknown): OptionItem | null {
     fields: Object.keys(fields).length > 0 ? fields : undefined,
     url: typeof o.url === 'string' ? o.url : undefined,
   };
+}
+
+// ---------------------------------------------------------------------------
+// `ask` fence — questionnaire with text-only options.
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse + validate an ask-form block body. Returns the canonical payload
+ * with defaults filled in, or an error string explaining why it was
+ * rejected. Per-question validation drops malformed questions; if zero
+ * questions survive, the block is rejected.
+ *
+ * When `partial: true`, falls back to brace-scanning for complete
+ * `{...}` question objects mid-stream so questions render as they
+ * arrive instead of waiting for the closing fence.
+ */
+export function parseAskForm(raw: string, opts: { partial?: boolean } = {}): { parsed: AskFormPayload | null; error?: string } {
+  let data: unknown = null;
+  let fullParseFailed = false;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    fullParseFailed = true;
+  }
+
+  if (!fullParseFailed) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return { parsed: null, error: 'expected json object at top level' };
+    }
+    const obj = data as Record<string, unknown>;
+    const prompt = typeof obj.prompt === 'string' ? obj.prompt : undefined;
+    if (!Array.isArray(obj.questions)) {
+      return { parsed: null, error: 'missing required field "questions" (array)' };
+    }
+    const questions: AskQuestion[] = [];
+    for (const rawQ of obj.questions) {
+      const valid = validateQuestion(rawQ);
+      if (valid) questions.push(valid);
+    }
+    if (questions.length === 0) {
+      return { parsed: null, error: 'no valid questions (each needs question text + at least one option)' };
+    }
+    return { parsed: { prompt, questions } };
+  }
+
+  // Partial path — only when explicitly requested (mid-stream).
+  if (!opts.partial) return { parsed: null, error: 'invalid json' };
+  return extractPartialAsk(raw);
+}
+
+function validateQuestion(raw: unknown): AskQuestion | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const q = raw as Record<string, unknown>;
+  const question = typeof q.question === 'string' ? q.question.trim() : '';
+  if (!question) return null;
+  if (!Array.isArray(q.options)) return null;
+  const options: AskOption[] = [];
+  for (const item of q.options) {
+    const valid = validateAskOption(item);
+    if (valid) options.push(valid);
+  }
+  if (options.length === 0) return null;
+  return {
+    question,
+    header: typeof q.header === 'string' && q.header.trim().length > 0 ? q.header.trim() : undefined,
+    multiSelect: typeof q.multiSelect === 'boolean' ? q.multiSelect : false,
+    allowOther: typeof q.allowOther === 'boolean' ? q.allowOther : true,
+    options,
+  };
+}
+
+function validateAskOption(raw: unknown): AskOption | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const label = typeof o.label === 'string' ? o.label.trim() : '';
+  if (!label) return null;
+  return {
+    label,
+    description: typeof o.description === 'string' ? o.description : undefined,
+  };
+}
+
+function extractPartialAsk(raw: string): { parsed: AskFormPayload | null; error?: string } {
+  let prompt: string | undefined;
+  const promptMatch = raw.match(/"prompt"\s*:\s*"((?:\\.|[^"\\])*)"/);
+  if (promptMatch) {
+    try { prompt = JSON.parse(`"${promptMatch[1]}"`); } catch { /* leave undefined */ }
+  }
+  const bracketIdx = findArrayStart(raw, 'questions');
+  if (bracketIdx === -1) return { parsed: null };
+  const questions: AskQuestion[] = [];
+  for (const slice of walkBalancedObjects(raw, bracketIdx)) {
+    try {
+      const obj = JSON.parse(slice);
+      const v = validateQuestion(obj);
+      if (v) questions.push(v);
+    } catch {
+      // malformed question — skip
+    }
+  }
+  if (questions.length === 0) return { parsed: null };
+  return { parsed: { prompt, questions } };
 }

@@ -51,6 +51,7 @@ message. The browser session stays warm; you resume right where you left off.
 | `multiSelect` | no       | Default `false`. `true` allows the user to pick multiple. |
 | `min` / `max` | no       | Bounds on count when `multiSelect: true`. Default min=1, max=options.length. |
 | `fieldSchema` | no, but recommended | Ordered list of field labels EVERY card should fill. Guarantees vertical alignment across cards — missing values in any card render as `—`. Omit only when cards genuinely have heterogeneous fields. |
+| `allowOther`  | no       | Default `true`. When `true`, the renderer appends a dashed "Other — describe…" card to the grid with a text input the user can type into. Their custom answer comes back as `Other: <text>` in the bulleted reply. Set `false` only when the listed options are truly exhaustive. |
 | `options[].id`          | **yes** | Stable id — usually the retailer's SKU/ASIN/listing-id. You receive this back on selection so you can re-locate the tile in the live page. |
 | `options[].image`       | **yes** | Absolute URL — the renderer loads it directly via `<img src>`. |
 | `options[].title`       | **yes** | Front-and-center; the line the user reads first. Keep concise. |
@@ -163,7 +164,82 @@ Read the id(s), re-locate the tile in the live browser (the URL is also in
 the block you emitted — you have it in your own message history), and
 proceed.
 
-## One block per category
+## Multi-section pickers — one fence, several categories
+
+When a single ask covers multiple categories the user has to choose
+across (a burger needs a patty AND a bun AND maybe a tomato; a flight
+booking needs an outbound AND a return), use a **`sections` array**
+inside one ` ```options ` fence instead of emitting separate fences.
+The renderer stacks each section as its own labeled sub-grid inside
+one picker shell, with a single Confirm button at the foot that
+bundles every section's picks into one resume call. One round-trip
+back to you, not five.
+
+```
+```options
+{
+  "prompt": "Pick burger ingredients",
+  "sections": [
+    {
+      "label": "Patty",
+      "multiSelect": false,
+      "fieldSchema": ["Price", "Protein"],
+      "options": [
+        { "id": "patty-1", "image": "https://...", "title": "Beyond Burger",
+          "fields": { "Price": "$6.49", "Protein": "20g" } },
+        { "id": "patty-2", "image": "https://...", "title": "85/15 Ground Beef (1 lb)",
+          "fields": { "Price": "$8.99", "Protein": "22g" } }
+      ]
+    },
+    {
+      "label": "Bun",
+      "multiSelect": false,
+      "options": [
+        { "id": "bun-1", "image": "https://...", "title": "Brioche Buns" },
+        { "id": "bun-2", "image": "https://...", "title": "Sesame Buns" }
+      ]
+    },
+    {
+      "label": "Tomato (optional, up to 2)",
+      "multiSelect": true,
+      "min": 0, "max": 2,
+      "options": [
+        { "id": "tom-1", "image": "https://...", "title": "Roma Tomato" },
+        { "id": "tom-2", "image": "https://...", "title": "Heirloom Tomato" }
+      ]
+    }
+  ]
+}
+```
+```
+
+Each section is independent — its own `label`, `multiSelect`, `min/max`,
+`fieldSchema`, and `options`. Confirm enables only when **every section**
+meets its bounds. The user's reply comes back to you shaped like:
+
+```
+Selected from options:
+- Patty: Beyond Burger (id: patty-1)
+- Bun: Brioche Buns (id: bun-1)
+- Tomato (optional, up to 2): Roma Tomato (id: tom-1)
+- Tomato (optional, up to 2): Heirloom Tomato (id: tom-2)
+```
+
+Each line is prefixed with the section label so you can route picks
+back to categories without guessing. Then proceed: add each picked item
+to cart, navigate to checkout, etc.
+
+### When to use sections vs. separate fences
+
+- **Use `sections`** when the choices are coordinated parts of one task
+  (burger ingredients, flight outbound+return, multi-room hotel booking,
+  outfit combinations). The user is making one combined decision.
+- **Use separate fences across turns** when each pick genuinely depends
+  on the previous one — "first pick a restaurant; once I see it, I'll
+  show you available reservation times." You need the user's answer
+  before you can compute the next set of options.
+
+## One block per category — single-section (legacy)
 
 For multi-step tasks like "burger ingredients", emit **one block per
 category** in sequence: pick a patty → user submits → "now the bun" → user
