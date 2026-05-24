@@ -17,6 +17,8 @@ interface SidebarProps {
   selectedId?: string | null;
   onSelect?: (id: string) => void;
   onNewAgent?: () => void;
+  onNewChat?: () => void;
+  onSearch?: () => void;
   onRowAction?: (id: string, action: SidebarRowAction) => void;
   mode?: SidebarMode;
 }
@@ -113,6 +115,28 @@ function PlusIcon(): React.ReactElement {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
       <path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ChatIcon(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path
+        d="M2 3.5A1.5 1.5 0 0 1 3.5 2h7A1.5 1.5 0 0 1 12 3.5v5A1.5 1.5 0 0 1 10.5 10H6l-3 2.5V10H3.5A1.5 1.5 0 0 1 2 8.5v-5Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function SearchIcon(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <circle cx="6" cy="6" r="3.6" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M8.7 8.7L11.5 11.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -285,7 +309,7 @@ function TabChip({
   );
 }
 
-export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onRowAction, mode = 'side' }: SidebarProps): React.ReactElement {
+export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onNewChat, onSearch, onRowAction, mode = 'side' }: SidebarProps): React.ReactElement {
   const data = sessions ?? MOCK_SIDEBAR_SESSIONS;
 
   const orderedSessions = useMemo(() => orderSessionsForSidebar(data), [data]);
@@ -315,28 +339,56 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onRowActio
 
   return (
     <aside className="sidebar" aria-label="Agent sessions">
-      <div className="sidebar__header">
-        <span className="sidebar__header-title">Agents</span>
-        <div className="sidebar__header-actions">
+      <div className="sidebar__quick">
+        {onNewChat && (
           <button
             type="button"
-            className="sidebar__icon-btn sidebar__icon-btn--new has-tooltip"
-            onClick={onNewAgent}
+            className="sidebar__quick-row"
+            onClick={onNewChat}
             onMouseDown={preventMouseFocus}
             tabIndex={-1}
-            aria-label="New agent"
-            data-tooltip="New agent"
           >
-            <PlusIcon />
+            <span className="sidebar__quick-icon"><ChatIcon /></span>
+            <span className="sidebar__quick-label">New chat</span>
           </button>
-        </div>
+        )}
+        {onSearch && (
+          <button
+            type="button"
+            className="sidebar__quick-row"
+            onClick={onSearch}
+            onMouseDown={preventMouseFocus}
+            tabIndex={-1}
+          >
+            <span className="sidebar__quick-icon"><SearchIcon /></span>
+            <span className="sidebar__quick-label">Search</span>
+          </button>
+        )}
       </div>
 
       <div className="sidebar__groups">
-        <div className="sidebar__group-body">
-          {orderedSessions.map((s) => (
-            <SessionRow key={s.id} s={s} selected={s.id === selectedId} onSelect={onSelect} onAction={onRowAction} />
-          ))}
+        <div className="sidebar__group">
+          <div className="sidebar__group-header sidebar__group-header--static">
+            <span className="sidebar__group-label">Agents</span>
+            {onNewAgent && (
+              <button
+                type="button"
+                className="sidebar__icon-btn sidebar__icon-btn--new has-tooltip"
+                onClick={onNewAgent}
+                onMouseDown={preventMouseFocus}
+                tabIndex={-1}
+                aria-label="New agent"
+                data-tooltip="New agent"
+              >
+                <PlusIcon />
+              </button>
+            )}
+          </div>
+          <div className="sidebar__group-body">
+            {orderedSessions.map((s) => (
+              <SessionRow key={s.id} s={s} selected={s.id === selectedId} onSelect={onSelect} onAction={onRowAction} />
+            ))}
+          </div>
         </div>
       </div>
 

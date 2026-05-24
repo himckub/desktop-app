@@ -526,6 +526,8 @@ export function HubApp(): React.ReactElement {
           enterChat(id);
         }}
         onNewAgent={() => openPill()}
+        onNewChat={() => setViewMode('dashboard')}
+        onSearch={() => openPill()}
         onRowAction={(id, action) => {
           console.log('[HubApp] sidebar row action', { id, action });
           switch (action) {
