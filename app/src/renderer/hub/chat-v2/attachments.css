@@ -195,6 +195,38 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.chatv2-attachment--removable {
+  position: relative;
+}
+
+.chatv2-attachment__remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.chatv2-attachment:hover .chatv2-attachment__remove,
+.chatv2-attachment:focus-within .chatv2-attachment__remove {
+  opacity: 1;
+}
+
+.chatv2-attachment__remove:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
 /* Inline variant — pill-shaped chips */
 .chatv2-attachments--inline .chatv2-attachment {
   padding: 4px 10px 4px 4px;

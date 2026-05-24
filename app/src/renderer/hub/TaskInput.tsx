@@ -4,11 +4,13 @@ import React, {
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
 import { INPUT_PLACEHOLDER } from './constants';
 import { EnginePicker, EngineLogo } from './EnginePicker';
+import { AttachmentList, type AttachmentItem } from './chat-v2/Attachments';
 
 const ENGINE_DISPLAY_NAMES: Record<string, string> = {
   'claude-code': 'Claude Code',
@@ -79,14 +81,6 @@ function PaperclipIcon(): React.ReactElement {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
       <path d="M9.5 3.5L4.5 8.5a2 2 0 1 0 2.83 2.83L11.5 7.5a3 3 0 0 0-4.24-4.24L2.5 8.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function CloseIcon(): React.ReactElement {
-  return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-      <path d="M2 2L8 8M8 2L2 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -165,6 +159,31 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   }, []);
+
+  const attachmentItems = useMemo<AttachmentItem[]>(() => {
+    return attachments.map((a, i) => {
+      const isImage = a.mime.startsWith('image/');
+      const src = isImage
+        ? URL.createObjectURL(new Blob([a.bytes as BlobPart], { type: a.mime }))
+        : undefined;
+      return {
+        key: `${a.name}-${i}`,
+        name: a.name,
+        mime: a.mime,
+        src,
+        meta: formatBytes(a.bytes.byteLength),
+        onRemove: () => removeAttachment(i),
+      };
+    });
+  }, [attachments, removeAttachment]);
+
+  useEffect(() => {
+    return () => {
+      for (const it of attachmentItems) {
+        if (it.src) URL.revokeObjectURL(it.src);
+      }
+    };
+  }, [attachmentItems]);
 
   const submit = useCallback(() => {
     const trimmed = value.trim();
@@ -247,22 +266,9 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
       >
-        {attachments.length > 0 && (
-          <div className="task-input__chips">
-            {attachments.map((a, i) => (
-              <span key={`${a.name}-${i}`} className="task-input__chip" title={`${a.mime} · ${formatBytes(a.bytes.byteLength)}`}>
-                <span className="task-input__chip-name">{a.name}</span>
-                <span className="task-input__chip-size">{formatBytes(a.bytes.byteLength)}</span>
-                <button
-                  type="button"
-                  className="task-input__chip-remove"
-                  onClick={() => removeAttachment(i)}
-                  aria-label={`Remove ${a.name}`}
-                >
-                  <CloseIcon />
-                </button>
-              </span>
-            ))}
+        {attachmentItems.length > 0 && (
+          <div className="task-input__attachments">
+            <AttachmentList items={attachmentItems} variant="gallery" />
           </div>
         )}
         {topSlot}

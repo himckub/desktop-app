@@ -43,18 +43,37 @@ export function Attachments({
 export function Attachment({
   children,
   onClick,
+  onRemove,
+  removeLabel,
 }: {
   children?: React.ReactNode;
   onClick?: () => void;
+  onRemove?: () => void;
+  removeLabel?: string;
 }): React.ReactElement {
   const Tag = onClick ? 'button' : 'div';
   return (
     <Tag
-      className={`chatv2-attachment${onClick ? ' chatv2-attachment--clickable' : ''}`}
+      className={`chatv2-attachment${onClick ? ' chatv2-attachment--clickable' : ''}${onRemove ? ' chatv2-attachment--removable' : ''}`}
       onClick={onClick}
       type={onClick ? 'button' : undefined}
     >
       {children}
+      {onRemove && (
+        <button
+          type="button"
+          className="chatv2-attachment__remove"
+          aria-label={removeLabel ?? 'Remove attachment'}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+            <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
     </Tag>
   );
 }
@@ -102,6 +121,7 @@ export interface AttachmentItem {
   mime?: string;
   meta?: string;
   onClick?: () => void;
+  onRemove?: () => void;
 }
 
 export function AttachmentList({
@@ -115,7 +135,12 @@ export function AttachmentList({
   return (
     <Attachments variant={variant}>
       {items.map((it) => (
-        <Attachment key={it.key} onClick={it.onClick}>
+        <Attachment
+          key={it.key}
+          onClick={it.onClick}
+          onRemove={it.onRemove}
+          removeLabel={it.onRemove ? `Remove ${it.name}` : undefined}
+        >
           <AttachmentPreview src={it.src} mime={it.mime} alt={it.name} />
           <AttachmentInfo name={it.name} meta={it.meta} />
         </Attachment>

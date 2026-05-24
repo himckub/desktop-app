@@ -2552,49 +2552,13 @@ button:focus:not(:focus-visible) {
   border-style: dashed;
 }
 
-.task-input__chips {
+.task-input__attachments {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+  justify-content: flex-start;
 }
 
-.task-input__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  background-color: var(--color-bg-sunken);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 2px 6px 2px 8px;
-  font-size: var(--font-size-sm);
-  color: var(--color-fg-secondary);
-  max-width: 220px;
-}
-
-.task-input__chip-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-input__chip-size {
-  color: var(--color-fg-tertiary);
-  font-size: var(--font-size-xs);
-}
-
-.task-input__chip-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-sm);
-  color: var(--color-fg-tertiary);
-}
-
-.task-input__chip-remove:hover {
-  color: var(--color-fg-primary);
-  background-color: var(--color-bg-elevated);
+.task-input__attachments .chatv2-attachments--gallery {
+  justify-content: start;
 }
 
 .task-input__error {
