@@ -39,9 +39,11 @@ function run(chunks: string[]): ExtractEvent[] {
 
 /** Reduce to the kind+content summary for easy assertions. */
 function summary(events: ExtractEvent[]): Array<[string, string, boolean?]> {
-  return events.map((e) => e.kind === 'text'
-    ? ['text', e.text]
-    : ['html_block', e.content, e.complete]);
+  return events.map((e) => {
+    if (e.kind === 'text') return ['text', e.text];
+    if (e.kind === 'html_block') return ['html_block', e.content, e.complete];
+    return ['option_list', e.raw, e.complete];
+  });
 }
 
 const PLAN_HTML = `<div class="plan">
@@ -329,10 +331,11 @@ describe('htmlBlocks — invariants', () => {
   it('preserves all input bytes when re-assembled', () => {
     const input = `Plan:\n\n${fenced(PLAN_HTML)}\n\nDetails below.\n\n${fenced('<p>hi</p>')}\n\nEnd.`;
     const events = run(stream(input, 3));
-    const reassembled = events.map((e) => e.kind === 'text'
-      ? e.text
-      : '```' + e.tag + '\n' + e.content + (e.complete ? '\n```' : '')
-    ).join('');
+    const reassembled = events.map((e) => {
+      if (e.kind === 'text') return e.text;
+      if (e.kind === 'html_block') return '```' + e.tag + '\n' + e.content + (e.complete ? '\n```' : '');
+      return '```options\n' + e.raw + (e.complete ? '\n```' : '');
+    }).join('');
     expect(reassembled).toBe(input);
   });
 

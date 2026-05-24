@@ -1,5 +1,5 @@
 /**
- * Streaming `html` / `htmlview` fenced-code-block extractor.
+ * Streaming `html` / `htmlview` / `options` fenced-code-block extractor.
  *
  * Agents (claude-code, codex, browsercode/opencode) stream their output as
  * many small text deltas. When the model emits a fenced block like:
@@ -9,18 +9,53 @@
  *     ```
  *
  * the renderer wants to surface that as a sandboxed-iframe artifact, not
- * as inline markdown. This module is the pure-function layer that
- * separates regular text from HTML blocks regardless of how the input
- * was chunked across `thinking` events.
+ * as inline markdown. Similarly an `options` fence carrying JSON is
+ * surfaced as a selectable picker, not raw code.
  *
- * Contract: see `app/tests/unit/chat-v2/htmlBlocks.test.ts` — the
- * benchmark. Adjust the spec there, not behavior here, unless the spec
- * is wrong.
+ * Contract: see `app/tests/unit/chat-v2/htmlBlocks.test.ts` and
+ * `optionBlocks.test.ts` — the benchmarks. Adjust the spec there, not
+ * behavior here, unless the spec is wrong.
  */
+
+export interface OptionItem {
+  id: string;
+  image: string;
+  title: string;
+  /** Long-form copy. Renderer clamps to ~5 lines. */
+  description?: string;
+  /** Arbitrary label→value rows shown at the card foot. The block's
+   *  `fieldSchema` (or the union of all options' keys when no schema is
+   *  declared) determines render order; missing values render as "—" so
+   *  cards align vertically across the grid. */
+  fields?: Record<string, string>;
+  url?: string;
+
+  // Backward-compat syntactic sugar — these get folded into `fields` /
+  // `description` by the parser. New callers should set fields/description
+  // directly.
+  subtitle?: string;
+  price?: string;
+  merchant?: string;
+}
+
+export interface OptionListPayload {
+  prompt?: string;
+  multiSelect: boolean;
+  min: number;
+  max: number;
+  /** Ordered list of field labels to render in every card. When present,
+   *  cards align vertically — missing values render as "—". When absent,
+   *  the renderer uses the union of every option's `fields` keys. */
+  fieldSchema?: string[];
+  options: OptionItem[];
+}
+
+export type FenceTag = 'html' | 'htmlview' | 'options';
 
 export type ExtractEvent =
   | { kind: 'text'; text: string }
-  | { kind: 'html_block'; content: string; tag: 'html' | 'htmlview'; complete: boolean };
+  | { kind: 'html_block'; content: string; tag: 'html' | 'htmlview'; complete: boolean }
+  | { kind: 'option_list'; complete: boolean; raw: string; parsed: OptionListPayload | null; error?: string };
 
 /**
  * Stateful, chunk-fed extractor. Safe to call `feed` once per streamed
@@ -37,9 +72,9 @@ export class HtmlBlockExtractor {
    */
   private static readonly LOOKBACK = 32;
 
-  private state: 'text' | 'html' = 'text';
+  private state: 'text' | 'fence' = 'text';
   private buffer = '';
-  private currentTag: 'html' | 'htmlview' | null = null;
+  private currentTag: FenceTag | null = null;
 
   /** Feed the next chunk of streamed text. Returns any events that
    *  fully resolved within (or before) this chunk. */
@@ -70,7 +105,7 @@ export class HtmlBlockExtractor {
             out.push({ kind: 'text', text: this.buffer.slice(0, opener.start) });
           }
           this.buffer = this.buffer.slice(opener.end);
-          this.state = 'html';
+          this.state = 'fence';
           this.currentTag = opener.tag;
           progress = true;
         } else if (flush) {
@@ -92,16 +127,12 @@ export class HtmlBlockExtractor {
           }
         }
       } else {
-        // state === 'html'
+        // state === 'fence' — inside an html/htmlview/options block
         const closer = findCloser(this.buffer, flush);
+        const tag = this.currentTag ?? 'html';
         if (closer) {
           const content = this.buffer.slice(0, closer.start);
-          out.push({
-            kind: 'html_block',
-            content,
-            tag: this.currentTag ?? 'html',
-            complete: true,
-          });
+          out.push(emitBlock(tag, content, /* complete */ true));
           this.buffer = this.buffer.slice(closer.end);
           this.state = 'text';
           this.currentTag = null;
@@ -109,20 +140,15 @@ export class HtmlBlockExtractor {
         } else if (flush) {
           // Stream ended mid-block — emit whatever we have so the user
           // sees the partial render rather than nothing.
-          out.push({
-            kind: 'html_block',
-            content: this.buffer,
-            tag: this.currentTag ?? 'html',
-            complete: false,
-          });
+          out.push(emitBlock(tag, this.buffer, /* complete */ false));
           this.buffer = '';
           this.state = 'text';
           this.currentTag = null;
         }
-        // While streaming an html block, we hold the entire buffer
+        // While streaming a fence, we hold the entire buffer
         // until the closing fence resolves. That's intentional: we
         // emit the block atomically so the UI doesn't render a
-        // half-formed <div> chain.
+        // half-formed <div> chain or partial JSON.
       }
     }
     return out;
@@ -154,10 +180,10 @@ export function extractAll(chunks: string[]): ExtractEvent[] {
  * newline arrives in the next chunk); LAX also accepts end-of-input
  * (used only during the final `end()` flush).
  */
-const OPENER_STRICT = /(^|\n)```(html|htmlview)[ \t]*\r?\n/;
-const OPENER_LAX = /(^|\n)```(html|htmlview)[ \t]*(\r?\n|$)/;
+const OPENER_STRICT = /(^|\n)```(html|htmlview|options)[ \t]*\r?\n/;
+const OPENER_LAX = /(^|\n)```(html|htmlview|options)[ \t]*(\r?\n|$)/;
 
-function findOpener(buf: string, flush: boolean): { start: number; end: number; tag: 'html' | 'htmlview' } | null {
+function findOpener(buf: string, flush: boolean): { start: number; end: number; tag: FenceTag } | null {
   const re = flush ? OPENER_LAX : OPENER_STRICT;
   const m = re.exec(buf);
   if (!m) return null;
@@ -167,7 +193,7 @@ function findOpener(buf: string, flush: boolean): { start: number; end: number; 
   // text event.
   const start = m.index + leading.length;
   const end = m.index + m[0].length;
-  const tag = m[2] as 'html' | 'htmlview';
+  const tag = m[2] as FenceTag;
   return { start, end, tag };
 }
 
@@ -213,4 +239,212 @@ function mergeAdjacentText(events: ExtractEvent[]): ExtractEvent[] {
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Block emission — branches on fence tag.
+// ---------------------------------------------------------------------------
+
+function emitBlock(tag: FenceTag, content: string, complete: boolean): ExtractEvent {
+  if (tag === 'options') {
+    // Always try to parse — even partial streams can yield complete option
+    // objects that we want to render progressively. parseOptionList falls
+    // back to brace-scanning when full JSON.parse fails.
+    const { parsed, error } = parseOptionList(content, { partial: !complete });
+    return { kind: 'option_list', complete, raw: content, parsed, error };
+  }
+  return { kind: 'html_block', content, tag, complete };
+}
+
+/**
+ * Parse + validate an options block body. Returns the canonical payload
+ * with defaults filled in, or an error string explaining why it was
+ * rejected. Invalid individual options are dropped — one bad option
+ * doesn't kill the whole picker. If zero options survive validation,
+ * the block as a whole is rejected.
+ *
+ * When `partial: true` (mid-stream), falls back to scanning the buffer
+ * for complete `{...}` objects inside the options array if full JSON
+ * parse fails. That gives progressive card rendering instead of a flat
+ * skeleton while the fence is still streaming.
+ */
+export function parseOptionList(raw: string, opts: { partial?: boolean } = {}): { parsed: OptionListPayload | null; error?: string } {
+  // 1) Try full parse first — works at completion AND mid-stream if the
+  //    JSON is incidentally valid (e.g. agent flushed a closing brace
+  //    before any items arrived).
+  let data: unknown = null;
+  let fullParseFailed = false;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    fullParseFailed = true;
+  }
+
+  if (!fullParseFailed) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return { parsed: null, error: 'expected json object at top level' };
+    }
+    const obj = data as Record<string, unknown>;
+    const rawOptions = obj.options;
+    if (!Array.isArray(rawOptions)) {
+      return { parsed: null, error: 'missing required field "options" (array)' };
+    }
+    const options: OptionItem[] = [];
+    for (const item of rawOptions) {
+      const valid = validateOption(item);
+      if (valid) options.push(valid);
+    }
+    if (options.length === 0) {
+      return { parsed: null, error: 'no valid options (each option needs id, image, title)' };
+    }
+    return { parsed: finalizePayload(obj, options) };
+  }
+
+  // 2) Partial parse path — only when explicitly requested (mid-stream).
+  if (!opts.partial) {
+    return { parsed: null, error: 'invalid json' };
+  }
+  const partial = extractPartialPayload(raw);
+  if (partial.options.length === 0) {
+    return { parsed: null };
+  }
+  return {
+    parsed: {
+      prompt: partial.prompt,
+      multiSelect: partial.multiSelect ?? false,
+      min: partial.min ?? 1,
+      max: partial.max ?? partial.options.length,
+      options: partial.options,
+    },
+  };
+}
+
+function finalizePayload(obj: Record<string, unknown>, options: OptionItem[]): OptionListPayload {
+  const multiSelect = typeof obj.multiSelect === 'boolean' ? obj.multiSelect : false;
+  const min = typeof obj.min === 'number' && Number.isFinite(obj.min) ? Math.max(0, Math.floor(obj.min)) : 1;
+  const max = typeof obj.max === 'number' && Number.isFinite(obj.max) ? Math.max(min, Math.floor(obj.max)) : (multiSelect ? options.length : 1);
+  const fieldSchema = Array.isArray(obj.fieldSchema)
+    ? (obj.fieldSchema as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0)
+    : undefined;
+  return {
+    prompt: typeof obj.prompt === 'string' ? obj.prompt : undefined,
+    multiSelect,
+    min,
+    max,
+    fieldSchema: fieldSchema && fieldSchema.length > 0 ? fieldSchema : undefined,
+    options,
+  };
+}
+
+/**
+ * Scan a partial buffer for complete `{...}` option objects inside the
+ * `options: [` array, plus any top-level scalar fields (prompt,
+ * multiSelect, min, max) that have already streamed in. Tolerant — any
+ * malformed individual object is silently skipped.
+ */
+function extractPartialPayload(raw: string): {
+  options: OptionItem[];
+  prompt?: string;
+  multiSelect?: boolean;
+  min?: number;
+  max?: number;
+} {
+  const out: { options: OptionItem[]; prompt?: string; multiSelect?: boolean; min?: number; max?: number } = { options: [] };
+
+  // Pull top-level scalars from the prefix via shallow regex. Good enough
+  // for the streaming case where the prefix is well-formed up to the
+  // truncation point.
+  const promptMatch = raw.match(/"prompt"\s*:\s*"((?:\\.|[^"\\])*)"/);
+  if (promptMatch) {
+    try { out.prompt = JSON.parse(`"${promptMatch[1]}"`); } catch { /* leave undefined */ }
+  }
+  const msMatch = raw.match(/"multiSelect"\s*:\s*(true|false)/);
+  if (msMatch) out.multiSelect = msMatch[1] === 'true';
+  const minMatch = raw.match(/"min"\s*:\s*(-?\d+)/);
+  if (minMatch) out.min = parseInt(minMatch[1], 10);
+  const maxMatch = raw.match(/"max"\s*:\s*(-?\d+)/);
+  if (maxMatch) out.max = parseInt(maxMatch[1], 10);
+
+  // Locate `"options":[` and walk forward extracting balanced {...}.
+  const arrStart = raw.search(/"options"\s*:\s*\[/);
+  if (arrStart === -1) return out;
+  const bracketIdx = raw.indexOf('[', arrStart);
+  if (bracketIdx === -1) return out;
+
+  let i = bracketIdx + 1;
+  while (i < raw.length) {
+    // Skip whitespace and commas between objects.
+    while (i < raw.length && (raw[i] === ' ' || raw[i] === '\t' || raw[i] === '\n' || raw[i] === '\r' || raw[i] === ',')) i++;
+    if (i >= raw.length) break;
+    if (raw[i] === ']') break;
+    if (raw[i] !== '{') { i++; continue; }
+
+    const start = i;
+    let depth = 0;
+    let inStr = false;
+    let escaped = false;
+    let closed = false;
+    for (; i < raw.length; i++) {
+      const c = raw[i];
+      if (escaped) { escaped = false; continue; }
+      if (inStr) {
+        if (c === '\\') escaped = true;
+        else if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') inStr = true;
+      else if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) { i++; closed = true; break; }
+      }
+    }
+    if (!closed) break; // partial object — stop and wait for more bytes
+    const slice = raw.slice(start, i);
+    try {
+      const obj = JSON.parse(slice);
+      const v = validateOption(obj);
+      if (v) out.options.push(v);
+    } catch {
+      // malformed — skip
+    }
+  }
+  return out;
+}
+
+function validateOption(raw: unknown): OptionItem | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === 'string' ? o.id.trim() : '';
+  const image = typeof o.image === 'string' ? o.image.trim() : '';
+  const title = typeof o.title === 'string' ? o.title.trim() : '';
+  if (!id || !image || !title) return null;
+
+  // Coerce the agent-supplied `fields` map into a clean string→string record.
+  const fields: Record<string, string> = {};
+  if (o.fields && typeof o.fields === 'object' && !Array.isArray(o.fields)) {
+    for (const [k, v] of Object.entries(o.fields as Record<string, unknown>)) {
+      if (typeof k === 'string' && k.length > 0 && (typeof v === 'string' || typeof v === 'number')) {
+        fields[k] = String(v);
+      }
+    }
+  }
+  // Backward-compat sugar: fold legacy price / merchant into fields if the
+  // agent didn't already set them.
+  if (typeof o.price === 'string' && !('Price' in fields)) fields.Price = o.price;
+  if (typeof o.merchant === 'string' && !('Merchant' in fields)) fields.Merchant = o.merchant;
+
+  // Description: prefer explicit `description`; fall back to `subtitle`.
+  const description = typeof o.description === 'string'
+    ? o.description
+    : (typeof o.subtitle === 'string' ? o.subtitle : undefined);
+
+  return {
+    id,
+    image,
+    title,
+    description,
+    fields: Object.keys(fields).length > 0 ? fields : undefined,
+    url: typeof o.url === 'string' ? o.url : undefined,
+  };
 }
