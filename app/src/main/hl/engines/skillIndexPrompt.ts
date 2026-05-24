@@ -79,6 +79,21 @@ export function optionsBlockGuidanceLines(): string[] {
   ];
 }
 
+/**
+ * Provider-neutral nudge for the `ask` fenced block — the renderer
+ * surfaces it as a text-only questionnaire (radio/checkbox per
+ * question, automatic "Other…" text input). For disambiguation and
+ * requirements gathering BEFORE you start browsing or building. See
+ * the `ask-block` interaction skill for the full schema and examples.
+ */
+export function askBlockGuidanceLines(): string[] {
+  return [
+    'When you need the user to answer one or more text-only multiple-choice questions to disambiguate intent or gather requirements (e.g. "what kind of SSD?", "which framework?", "what budget?"), emit a ```ask fenced block carrying JSON: { prompt?, questions: [{ question, header?, multiSelect, allowOther?, options: [{ label, description? }] }] }. Each question must have a `question` string and at least one valid option; the renderer auto-appends an "Other…" text input unless `allowOther: false`.',
+    'The `ask` block ENDS YOUR TURN. After emitting it, do not call any more tools — stop and wait for the user. Their answers arrive as the next user message shaped like "Answered:\\n- Capacity: 2 TB\\n- Budget: Other: around $250" so you can resume with the new context.',
+    'Choose between `ask` and `options`: use `ask` for text-only choices (form factor, capacity, framework, budget tier). Use `options` for image-driven product/listing picks. See the `ask-block` interaction skill for the full schema and worked examples.',
+  ];
+}
+
 function normalizeSlash(value: string): string {
   return value.split(path.sep).join('/');
 }

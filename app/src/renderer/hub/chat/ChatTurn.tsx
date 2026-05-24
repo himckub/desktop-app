@@ -14,6 +14,7 @@ import { AttachmentList, type AttachmentItem } from '../chat-v2/Attachments';
 import { extractAll } from '../chat-v2/htmlBlocks';
 import { HtmlBlock } from '../chat-v2/HtmlBlock';
 import { OptionList } from '../chat-v2/OptionList';
+import { AskForm } from '../chat-v2/AskForm';
 
 const USER_BUBBLE_CLAMP_LINES = 10;
 const USER_BUBBLE_CLAMP_CHARS = 600;
@@ -414,7 +415,7 @@ function StreamingProse({
   // `htmlview`, and `options` fences and emits structured events for
   // each. Cheap to run (regex-based, pure) — re-execute on every render.
   const events = extractAll([target]);
-  const hasStructuredBlock = events.some((e) => e.kind === 'html_block' || e.kind === 'option_list');
+  const hasStructuredBlock = events.some((e) => e.kind === 'html_block' || e.kind === 'option_list' || e.kind === 'ask_form');
 
   // If the model didn't emit any structured blocks, preserve the
   // existing typewriter + stable-markdown flow exactly as it was.
@@ -442,6 +443,17 @@ function StreamingProse({
         }
         if (e.kind === 'html_block') {
           return <HtmlBlock key={i} content={e.content} complete={e.complete} tag={e.tag} />;
+        }
+        if (e.kind === 'ask_form') {
+          return (
+            <AskForm
+              key={i}
+              payload={e.parsed}
+              complete={e.complete}
+              error={e.error}
+              sessionId={sessionId}
+            />
+          );
         }
         return (
           <OptionList
