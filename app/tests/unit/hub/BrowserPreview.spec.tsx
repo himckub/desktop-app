@@ -60,11 +60,25 @@ describe('BrowserPreview', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps the browser icon placeholder while there is no URL, even after blank frames arrive', async () => {
+  it('does not render while there is no URL, even after blank frames arrive', async () => {
     const { container, root } = renderPreview();
 
     await act(async () => {
       frameHandler?.(SESSION.id, 'blank-frame');
+    });
+
+    expect(container.querySelector('.browser-preview__wrap')).toBeNull();
+    expect(container.querySelector('.browser-preview__placeholder')).toBeNull();
+    expect(container.querySelector('.browser-preview__img')).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it('shows the browser icon placeholder after a URL is known while waiting for a frame', () => {
+    const { container, root } = renderPreview();
+
+    act(() => {
+      useSessionsStore.getState().patchSession(SESSION.id, { lastUrl: 'https://x.com/' });
     });
 
     expect(container.querySelector('.browser-preview__placeholder')).not.toBeNull();
