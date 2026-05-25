@@ -416,11 +416,13 @@ function StreamingProse({
   // each. Cheap to run (regex-based, pure) — re-execute on every render.
   const events = extractAll([target]);
   const hasStructuredBlock = events.some((e) => e.kind === 'html_block' || e.kind === 'option_list' || e.kind === 'ask_form');
+  // Hook must run unconditionally (rules-of-hooks); result is only consumed
+  // on the no-structured-block branch below.
+  const shown = useTypewriter(target, 110, done);
 
   // If the model didn't emit any structured blocks, preserve the
   // existing typewriter + stable-markdown flow exactly as it was.
   if (!hasStructuredBlock) {
-    const shown = useTypewriter(target, 110, done);
     const caughtUp = shown.length >= target.length;
     const stillStreaming = !done || !caughtUp;
     return (
