@@ -1254,6 +1254,7 @@
   padding: 11px 15px;
   border: 1px dashed var(--color-border-subtle);
   border-radius: 10px;
+  background-color: var(--color-bg-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
