@@ -245,7 +245,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAttachmentsByTurn: (
       sessionId: string,
       turnIndex: number,
-    ): Promise<Array<{ id: number; name: string; mime: string; size: number; dataUrl: string }>> =>
+    ): Promise<Array<{ id: number; name: string; mime: string; size: number; dataUrl?: string }>> =>
       ipcRenderer.invoke('sessions:get-attachments-by-turn', { sessionId, turnIndex }),
     readSkill: (payload: { domainTopic?: string; absPath?: string }): Promise<
       | { ok: true; path: string; filename: string; sizeBytes: number; mtimeMs: number; lineCount: number; title: string; description: string; body: string; truncated: boolean }

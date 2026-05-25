@@ -72,15 +72,17 @@ function UserBubble({ content, onEdit, onShare, sessionId, attachmentTurnIndex }
       return;
     }
     let cancelled = false;
-    const api = (window as unknown as { electronAPI?: { sessions?: { getAttachmentsByTurn?: (s: string, t: number) => Promise<Array<{ id: number; name: string; mime: string; size: number; dataUrl: string }>> } } }).electronAPI;
-    api?.sessions?.getAttachmentsByTurn?.(sessionId, attachmentTurnIndex)
+    const api = (window as unknown as { electronAPI?: { sessions?: { getAttachmentsByTurn?: (s: string, t: number) => Promise<Array<{ id: number; name: string; mime: string; size: number; dataUrl?: string }>> } } }).electronAPI;
+    const request = api?.sessions?.getAttachmentsByTurn?.(sessionId, attachmentTurnIndex);
+    if (!request) return () => { cancelled = true; };
+    request
       .then((rows) => {
         if (cancelled) return;
         setAttachments(rows.map((r) => ({
           key: String(r.id),
           name: r.name,
           mime: r.mime,
-          src: r.dataUrl,
+          src: r.mime.startsWith('image/') ? r.dataUrl : undefined,
           meta: formatBytes(r.size),
         })));
       })
@@ -804,8 +806,10 @@ function renderAgentEntries(entries: OutputEntry[], isLive: boolean, sessionId?:
         meta,
         src,
         onClick: absPath
-          ? () => { void window.electronAPI?.sessions?.revealOutput?.(absPath)
-              .catch((err) => console.error('[Attachments] revealOutput failed', err)); }
+          ? () => {
+              const request = window.electronAPI?.sessions?.revealOutput?.(absPath);
+              request?.catch((err) => console.error('[Attachments] revealOutput failed', err));
+            }
           : undefined,
       };
     });

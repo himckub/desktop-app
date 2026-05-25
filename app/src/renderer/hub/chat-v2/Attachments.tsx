@@ -51,12 +51,24 @@ export function Attachment({
   onRemove?: () => void;
   removeLabel?: string;
 }): React.ReactElement {
-  const Tag = onClick ? 'button' : 'div';
+  const useButton = Boolean(onClick && !onRemove);
+  const Tag = useButton ? 'button' : 'div';
+  const activate = (): void => {
+    onClick?.();
+  };
   return (
     <Tag
       className={`chatv2-attachment${onClick ? ' chatv2-attachment--clickable' : ''}${onRemove ? ' chatv2-attachment--removable' : ''}`}
-      onClick={onClick}
-      type={onClick ? 'button' : undefined}
+      onClick={onClick ? activate : undefined}
+      onKeyDown={!useButton && onClick ? (e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        activate();
+      } : undefined}
+      role={!useButton && onClick ? 'button' : undefined}
+      tabIndex={!useButton && onClick ? 0 : undefined}
+      type={useButton ? 'button' : undefined}
     >
       {children}
       {onRemove && (

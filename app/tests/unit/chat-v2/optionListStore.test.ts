@@ -24,7 +24,15 @@ describe('submissionKey', () => {
   });
 
   it('handles undefined sessionId without crashing', () => {
-    expect(submissionKey(undefined, ['a'])).toMatch(/none/);
+    expect(JSON.parse(submissionKey(undefined, ['a']))).toEqual({
+      sessionId: null,
+      optionIds: ['a'],
+    });
+  });
+
+  it('does not collide when session or option ids contain delimiters', () => {
+    expect(submissionKey('s:a', ['b|c'])).not.toBe(submissionKey('s', ['a:b', 'c']));
+    expect(submissionKey('s', ['a|b', 'c'])).not.toBe(submissionKey('s', ['a', 'b|c']));
   });
 });
 

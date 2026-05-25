@@ -1714,11 +1714,10 @@ app.whenReady().then(async () => {
     return { revealed: true };
   });
 
-  // User-attached files (images, etc.) sent with a prompt are stored in
-  // the session_attachments table by turn_index. This handler returns
-  // metadata + a data URL so the renderer can <img src=...> them inline
-  // beside the originating user message bubble. Bytes never leak through
-  // raw — always base64-encoded into a data URL with the recorded MIME.
+  // User-attached files sent with a prompt are stored in the
+  // session_attachments table by turn_index. The renderer only previews
+  // images inline, so return data URLs only for image attachments and keep
+  // PDFs/text/binaries as metadata to avoid large IPC payloads.
   ipcMain.handle('sessions:get-attachments-by-turn', async (_event, payload: { sessionId: string; turnIndex: number }) => {
     if (!payload || typeof payload !== 'object') throw new Error('payload required');
     const sessionId = assertString(payload.sessionId, 'sessionId', 200);
@@ -1732,7 +1731,9 @@ app.whenReady().then(async () => {
       name: r.name,
       mime: r.mime,
       size: r.size,
-      dataUrl: `data:${r.mime};base64,${Buffer.from(r.bytes).toString('base64')}`,
+      dataUrl: r.mime.startsWith('image/')
+        ? `data:${r.mime};base64,${Buffer.from(r.bytes).toString('base64')}`
+        : undefined,
     }));
     mainLogger.info('main.sessions:get-attachments-by-turn', {
       sessionId, turnIndex, count: result.length,

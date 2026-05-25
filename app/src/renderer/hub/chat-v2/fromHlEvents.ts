@@ -17,18 +17,18 @@ import type {
   UIMessageV2,
 } from './parts';
 
-let _idCounter = 0;
-function nextId(role: 'user' | 'assistant'): string {
-  _idCounter += 1;
-  return `m-${role}-${_idCounter}`;
-}
-
 export function fromHlEvents(
   events: HlEvent[],
   timestamps: number[],
 ): UIMessageV2[] {
   const messages: UIMessageV2[] = [];
   let current: UIMessageV2 | null = null;
+  let idCounter = 0;
+
+  const nextId = (role: 'user' | 'assistant'): string => {
+    idCounter += 1;
+    return `m-${role}-${idCounter}`;
+  };
 
   const ensureAssistant = (ts: number): UIMessageV2 => {
     if (current && current.role === 'assistant') return current;
@@ -231,6 +231,8 @@ export function fromHlEvents(
 
       case 'file_output': {
         const msg = ensureAssistant(ts);
+        closeStreamingReasoning(msg);
+        closeStreamingText(msg);
         const part: MessagePart = {
           type: 'file',
           name: evt.name,
@@ -245,6 +247,8 @@ export function fromHlEvents(
 
       case 'notify': {
         const msg = ensureAssistant(ts);
+        closeStreamingReasoning(msg);
+        closeStreamingText(msg);
         const part: MessagePart = {
           type: 'notify',
           level: evt.level,

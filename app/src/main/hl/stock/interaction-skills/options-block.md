@@ -59,7 +59,7 @@ message. The browser session stays warm; you resume right where you left off.
 | `options[].fields`      | no | `Record<string, string>` of label→value rows shown at the card foot. For visual alignment use the same keys across every card (matching `fieldSchema`). |
 | `options[].url`         | no | Source URL (informational; not navigated automatically). |
 
-Options without `id`, `image`, AND `title` are silently dropped by the
+Options missing any of `id`, `image`, or `title` are silently dropped by the
 renderer. If zero survive validation the whole block is rejected — be careful
 that every option has all three.
 
@@ -250,7 +250,7 @@ faster than a giant grid.
 ## Worked example — "buy me an SSD"
 
 1. Navigate to amazon.com, search for "2tb nvme ssd", wait_for_load.
-2. Read product tiles via the JS snippet above.
+2. Read product tiles from the page using selectors that fit the current site.
 3. Emit:
 
    ```

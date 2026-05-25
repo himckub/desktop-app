@@ -110,6 +110,19 @@ describe('options fence — extraction (legacy single-section)', () => {
     expect(e.parsed?.sections[0].max).toBe(2);
   });
 
+  it('clamps negative min while progressively parsing legacy options', () => {
+    const partial =
+      '```options\n{"multiSelect":true,"min":-2,"max":1,"options":['
+      + '{"id":"a1","image":"i1","title":"A"},'
+      + '{"id":"a2","image":"i2"';
+    const events = run([partial]);
+    const e = events[0];
+    expect(e.kind).toBe('option_list');
+    if (e.kind !== 'option_list') return;
+    expect(e.parsed?.sections[0].min).toBe(0);
+    expect(e.parsed?.sections[0].max).toBe(1);
+  });
+
   it('renders parsed cards even when trailing comma and EOF arrive', () => {
     const partial =
       '```options\n{"options":['

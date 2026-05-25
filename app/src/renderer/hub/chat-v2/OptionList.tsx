@@ -29,7 +29,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { OptionItem, OptionListPayload, OptionListSection } from './htmlBlocks';
-import { getSubmission, recordSubmission, submissionKey } from './optionListStore';
+import { getSubmission, getSubmissionRecord, recordSubmission, submissionKey } from './optionListStore';
 import './optionList.css';
 
 interface Props {
@@ -94,6 +94,21 @@ interface ReadyProps {
 const TRAILING_SKELETONS_WHILE_STREAMING = 2;
 const OTHER_TOKEN = '__other__';
 
+function canSubmitSelection(
+  sections: OptionListSection[],
+  selectedBySection: Set<string>[],
+  otherTextBySection: string[],
+): boolean {
+  return sections.every((sec, i) => {
+    const sel = selectedBySection[i] ?? new Set<string>();
+    const n = sel.size;
+    const boundsOk = sec.multiSelect ? (n >= sec.min && n <= sec.max) : (n === 1);
+    if (!boundsOk) return false;
+    if (sel.has(OTHER_TOKEN) && (otherTextBySection[i] ?? '').trim().length === 0) return false;
+    return true;
+  });
+}
+
 function OptionListReady({ payload, sessionId, streaming }: ReadyProps): React.ReactElement {
   const { sections, prompt } = payload;
   const multi = sections.length > 1;
@@ -122,6 +137,7 @@ function OptionListReady({ payload, sessionId, streaming }: ReadyProps): React.R
     return submissionKey(sessionId, allIds);
   }, [sessionId, sections]);
   const cachedSelection = useMemo(() => getSubmission(cacheKey), [cacheKey]);
+  const cachedRecord = useMemo(() => getSubmissionRecord(cacheKey), [cacheKey]);
 
   // Per-section selected ids. We track one Set per section index.
   // The Set may also contain OTHER_TOKEN when the user picks "Other".
@@ -135,7 +151,7 @@ function OptionListReady({ payload, sessionId, streaming }: ReadyProps): React.R
   );
   // Per-section free-text answer when the user picks the "Other" card.
   const [otherTextBySection, setOtherTextBySection] = useState<string[]>(
-    () => sections.map(() => ''),
+    () => sections.map((_, i) => cachedRecord?.otherText?.[i] ?? ''),
   );
   // Cursor lives at (section, option). Arrow keys cycle within a section.
   const [cursor, setCursor] = useState<{ section: number; option: number }>({ section: 0, option: 0 });
@@ -168,14 +184,7 @@ function OptionListReady({ payload, sessionId, streaming }: ReadyProps): React.R
   // canSubmit: every section meets its bounds AND any section that
   // has the Other card selected has non-empty typed text.
   const canSubmit = useMemo(() => {
-    return sections.every((sec, i) => {
-      const sel = selectedBySection[i] ?? new Set<string>();
-      const n = sel.size;
-      const boundsOk = sec.multiSelect ? (n >= sec.min && n <= sec.max) : (n === 1);
-      if (!boundsOk) return false;
-      if (sel.has(OTHER_TOKEN) && (otherTextBySection[i] ?? '').trim().length === 0) return false;
-      return true;
-    });
+    return canSubmitSelection(sections, selectedBySection, otherTextBySection);
   }, [sections, selectedBySection, otherTextBySection]);
 
   const totalSelected = useMemo(
@@ -187,11 +196,17 @@ function OptionListReady({ payload, sessionId, streaming }: ReadyProps): React.R
     if (submitted) return totalSelected === 1 ? 'Sent to agent' : `Sent ${totalSelected} items`;
     if (multi) {
       if (canSubmit) return `Confirm ${totalSelected} pick${totalSelected === 1 ? '' : 's'}`;
+      const missingOther = sections.findIndex((_, i) => {
+        const sel = selectedBySection[i] ?? new Set<string>();
+        return sel.has(OTHER_TOKEN) && (otherTextBySection[i] ?? '').trim().length === 0;
+      });
+      if (missingOther >= 0) return 'Type your "Other" answer';
       // Find the first section that's not satisfied, hint at it.
       const idx = sections.findIndex((sec, i) => {
         const n = selectedBySection[i]?.size ?? 0;
         return sec.multiSelect ? (n < sec.min || n > sec.max) : (n !== 1);
       });
+      if (idx < 0) return 'Pick options to continue';
       const sec = sections[idx];
       const label = sec?.label || `section ${idx + 1}`;
       return `Pick from "${label}" to continue`;
@@ -200,6 +215,9 @@ function OptionListReady({ payload, sessionId, streaming }: ReadyProps): React.R
     const sec = sections[0];
     const sel = selectedBySection[0] ?? new Set<string>();
     const n = sel.size;
+    if (sel.has(OTHER_TOKEN) && (otherTextBySection[0] ?? '').trim().length === 0) {
+      return 'Type your "Other" answer';
+    }
     if (sec.multiSelect) {
       if (n === 0) return sec.min > 1 ? `Pick at least ${sec.min}` : 'Pick options to continue';
       if (n < sec.min) return `${sec.min - n} more to continue`;
@@ -211,16 +229,17 @@ function OptionListReady({ payload, sessionId, streaming }: ReadyProps): React.R
       return `Confirm "${truncated}"`;
     }
     return 'Pick one to continue';
-  }, [sections, selectedBySection, canSubmit, multi, totalSelected, submitted]);
+  }, [sections, selectedBySection, otherTextBySection, canSubmit, multi, totalSelected, submitted]);
 
-  const submit = useCallback(async (): Promise<void> => {
-    if (!canSubmit || locked) return;
+  const submit = useCallback(async (selectionOverride?: Set<string>[]): Promise<void> => {
+    const selected = selectionOverride ?? selectedBySection;
+    if (!canSubmitSelection(sections, selected, otherTextBySection) || locked) return;
     if (!sessionId) {
       setSubmitError('no active session');
       return;
     }
     const pickedAcross: { section: OptionListSection; picked: OptionItem[]; otherText: string }[] = sections.map((sec, i) => {
-      const ids = selectedBySection[i] ?? new Set<string>();
+      const ids = selected[i] ?? new Set<string>();
       const otherText = ids.has(OTHER_TOKEN) ? (otherTextBySection[i] ?? '').trim() : '';
       return { section: sec, picked: sec.options.filter((o) => ids.has(o.id)), otherText };
     });
@@ -235,16 +254,16 @@ function OptionListReady({ payload, sessionId, streaming }: ReadyProps): React.R
       } else {
         const flat: string[] = [];
         for (let i = 0; i < sections.length; i++) {
-          const ids = selectedBySection[i] ?? new Set<string>();
+          const ids = selected[i] ?? new Set<string>();
           for (const id of ids) flat.push(id);
         }
-        recordSubmission(cacheKey, flat);
+        recordSubmission(cacheKey, flat, { otherText: otherTextBySection });
       }
     } catch (err) {
       setSubmitError((err as Error).message);
       setSubmitted(false);
     }
-  }, [canSubmit, locked, sessionId, sections, selectedBySection, otherTextBySection, cacheKey]);
+  }, [locked, sessionId, sections, selectedBySection, otherTextBySection, cacheKey]);
 
   const handleSectionKey = useCallback((sectionIdx: number, e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (locked) return;
@@ -274,14 +293,19 @@ function OptionListReady({ payload, sessionId, streaming }: ReadyProps): React.R
         } else if (sec.multiSelect) {
           if (canSubmit) void submit();
         } else {
-          toggle(sectionIdx, cur);
-          setTimeout(() => { void submit(); }, 0);
+          const opt = sec.options[cur];
+          if (!opt) return;
+          const next = selectedBySection.map((set, idx) => (
+            idx === sectionIdx ? new Set<string>([opt.id]) : new Set(set)
+          ));
+          setSelectedBySection(next);
+          void submit(next);
         }
         break;
       default:
         break;
     }
-  }, [locked, sections, cursor, multi, canSubmit, toggle, submit]);
+  }, [locked, sections, cursor, multi, canSubmit, selectedBySection, submit, toggle]);
 
   // Auto-focus the first section's grid on mount so kbd nav works
   // without an initial click.

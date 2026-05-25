@@ -478,7 +478,7 @@ function extractPartial(raw: string): { parsed: OptionListPayload | null; error?
   const msMatch = raw.match(/"multiSelect"\s*:\s*(true|false)/);
   const multiSelect = msMatch ? msMatch[1] === 'true' : false;
   const minMatch = raw.match(/"min"\s*:\s*(-?\d+)/);
-  const min = minMatch ? parseInt(minMatch[1], 10) : 1;
+  const min = minMatch ? Math.max(0, parseInt(minMatch[1], 10)) : 1;
   const maxMatch = raw.match(/"max"\s*:\s*(-?\d+)/);
   const max = maxMatch ? Math.max(min, parseInt(maxMatch[1], 10)) : (multiSelect ? options.length : 1);
   return {

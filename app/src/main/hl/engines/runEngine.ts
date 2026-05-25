@@ -479,6 +479,19 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     });
   };
 
+  const flushOutputs = (): void => {
+    const filenames = new Set(outputsTimers.keys());
+    for (const timer of outputsTimers.values()) clearTimeout(timer);
+    outputsTimers.clear();
+    try {
+      for (const filename of fs.readdirSync(outputsDir)) filenames.add(filename);
+    } catch {
+      // Directory may have been removed by external cleanup; pending names
+      // above still get a best-effort stat in emitOutputIfSettled.
+    }
+    for (const filename of filenames) emitOutputIfSettled(filename);
+  };
+
   try {
     outputsWatcher = fs.watch(outputsDir, { persistent: false }, (_ev, filename) => {
       if (!filename || typeof filename !== 'string') return;
@@ -671,6 +684,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
       opts.signal?.removeEventListener('abort', onAbort);
       clearAbortKillTimer();
       flushHarnessChanges();
+      flushOutputs();
       closeWatchers();
       engineLogger.info('engines.run.exit', {
         engineId: adapter.id,
@@ -704,6 +718,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
       opts.signal?.removeEventListener('abort', onAbort);
       clearAbortKillTimer();
       flushHarnessChanges();
+      flushOutputs();
       closeWatchers();
       opts.onEvent({ type: 'error', message: `${adapter.id}_spawn_error: ${err.message}` });
       resolve();

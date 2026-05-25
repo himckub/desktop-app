@@ -49,6 +49,15 @@ describe('fromHlEvents — empty / trivial', () => {
     expect(fromHlEvents([], [])).toEqual([]);
   });
 
+  it('derives stable ids for repeated transforms of the same stream', () => {
+    const stamped = [
+      userText('hello', 100),
+      thinking('hi back', 110),
+      done('hi back', 1, 120),
+    ];
+    expect(run(stamped).map((m) => m.id)).toEqual(run(stamped).map((m) => m.id));
+  });
+
   it('creates a user message for a lone user_input', () => {
     const out = run([userText('hello', 100)]);
     expect(out).toHaveLength(1);
@@ -287,6 +296,18 @@ describe('fromHlEvents — file/notify pass-through', () => {
     });
   });
 
+  it('closes streaming text before appending a file part', () => {
+    const out = run([
+      userText('q', 100),
+      thinking('draft answer', 110),
+      { e: { type: 'file_output', name: 'r.png', path: '/tmp/r.png', size: 12, mime: 'image/png' }, ts: 120 },
+      done('done', 1, 130),
+    ]);
+    expect((out[1].parts[0] as TextPart).state).toBe('done');
+    expect(out[1].parts[1].type).toBe('file');
+    expect(out[1].status).toBe('done');
+  });
+
   it('emits notify parts', () => {
     const out = run([
       userText('q', 100),
@@ -295,5 +316,17 @@ describe('fromHlEvents — file/notify pass-through', () => {
     expect(out[1].parts[0]).toEqual({
       type: 'notify', level: 'info', message: 'heads up',
     });
+  });
+
+  it('closes streaming text before appending a notify part', () => {
+    const out = run([
+      userText('q', 100),
+      thinking('draft answer', 110),
+      { e: { type: 'notify', message: 'heads up', level: 'info' }, ts: 120 },
+      done('done', 1, 130),
+    ]);
+    expect((out[1].parts[0] as TextPart).state).toBe('done');
+    expect(out[1].parts[1].type).toBe('notify');
+    expect(out[1].status).toBe('done');
   });
 });

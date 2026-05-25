@@ -143,6 +143,32 @@ describe('runEngine harness watcher', () => {
     });
   });
 
+  test('flushes output file events when the engine exits before debounce settles', async () => {
+    const script = [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const file = path.join('outputs', 'test-session', 'fast.txt');",
+      "fs.mkdirSync(path.dirname(file), { recursive: true });",
+      "fs.writeFileSync(file, 'fast output');",
+      "console.log(JSON.stringify({ type: 'done' }));",
+    ].join('\n');
+    const engineId = registerFakeEngine(script, (line) => {
+      const event = JSON.parse(line) as { type?: string };
+      if (event.type === 'done') return { events: [{ type: 'done', summary: 'ok', iterations: 1 }] };
+      return { events: [] };
+    });
+
+    const events = await runFakeEngine(engineId, harnessDir);
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'file_output',
+      name: 'fast.txt',
+      path: path.join(harnessDir, 'outputs', 'test-session', 'fast.txt'),
+      size: 'fast output'.length,
+      mime: 'text/plain',
+    }));
+  });
+
   test('does not emit harness_edited for tool metadata when file content is unchanged', async () => {
     const script = [
       "console.log(JSON.stringify({ type: 'tool' }));",

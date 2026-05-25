@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AskFormPayload, AskQuestion } from './htmlBlocks';
-import { getSubmission, recordSubmission, submissionKey } from './optionListStore';
+import { getSubmissionRecord, recordSubmission, submissionKey } from './optionListStore';
 import './askForm.css';
 
 interface Props {
@@ -26,6 +26,30 @@ interface Props {
 
 const OTHER_TOKEN = '__other__';
 const TRAILING_SKELETONS_WHILE_STREAMING = 1;
+
+function encodeAskSelection(question: string, label: string): string {
+  return JSON.stringify([question, label]);
+}
+
+function decodeAskSelection(value: string): { question: string; label: string } | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      Array.isArray(parsed)
+      && parsed.length === 2
+      && typeof parsed[0] === 'string'
+      && typeof parsed[1] === 'string'
+    ) {
+      return { question: parsed[0], label: parsed[1] };
+    }
+  } catch {
+    // Fall through to the legacy delimiter format for in-memory entries
+    // written by older component instances in the same renderer lifetime.
+  }
+  const [qPrefix, ...labelParts] = value.split('::');
+  if (!qPrefix || labelParts.length === 0) return null;
+  return { question: qPrefix, label: labelParts.join('::') };
+}
 
 export function AskForm(props: Props): React.ReactElement {
   const { payload, complete, error, sessionId } = props;
@@ -74,29 +98,29 @@ function AskFormReady({ payload, sessionId, streaming }: ReadyProps): React.Reac
     const ids = questions.map((q) => q.question);
     return `ask:${submissionKey(sessionId, ids)}`;
   }, [sessionId, questions]);
-  const cachedSelection = useMemo(() => getSubmission(cacheKey), [cacheKey]);
+  const cachedRecord = useMemo(() => getSubmissionRecord(cacheKey), [cacheKey]);
 
   // Per-question selected labels. Use `Set<string>` so single + multi
   // share the same state shape; "Other" picks store the literal
   // OTHER_TOKEN. Per-question typed-other text in a parallel array.
   const [selectedByQuestion, setSelectedByQuestion] = useState<Set<string>[]>(
     () => questions.map((q) => {
-      if (!cachedSelection) return new Set();
+      if (!cachedRecord) return new Set();
       const restored = new Set<string>();
       const validLabels = new Set([...q.options.map((o) => o.label), OTHER_TOKEN]);
-      for (const id of cachedSelection) {
-        const [qPrefix, ...labelParts] = id.split('::');
-        if (qPrefix === q.question && validLabels.has(labelParts.join('::'))) {
-          restored.add(labelParts.join('::'));
+      for (const id of cachedRecord.selectedIds) {
+        const decoded = decodeAskSelection(id);
+        if (decoded?.question === q.question && validLabels.has(decoded.label)) {
+          restored.add(decoded.label);
         }
       }
       return restored;
     }),
   );
   const [otherTextByQuestion, setOtherTextByQuestion] = useState<string[]>(
-    () => questions.map(() => ''),
+    () => questions.map((_, i) => cachedRecord?.otherText?.[i] ?? ''),
   );
-  const [submitted, setSubmitted] = useState<boolean>(cachedSelection !== null);
+  const [submitted, setSubmitted] = useState<boolean>(cachedRecord !== null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const locked = submitted;
@@ -130,7 +154,7 @@ function AskFormReady({ payload, sessionId, streaming }: ReadyProps): React.Reac
   // Each question must have AT LEAST one selection, and if "Other" is
   // picked the text must be non-empty.
   const canSubmit = useMemo(() => {
-    return questions.every((q, i) => {
+    return questions.length > 0 && questions.every((q, i) => {
       const sel = selectedByQuestion[i];
       if (!sel || sel.size === 0) return false;
       if (q.multiSelect) {
@@ -175,9 +199,9 @@ function AskFormReady({ payload, sessionId, streaming }: ReadyProps): React.Reac
         const flat: string[] = [];
         for (let i = 0; i < questions.length; i++) {
           const sel = selectedByQuestion[i] ?? new Set<string>();
-          for (const label of sel) flat.push(`${questions[i].question}::${label}`);
+          for (const label of sel) flat.push(encodeAskSelection(questions[i].question, label));
         }
-        recordSubmission(cacheKey, flat);
+        recordSubmission(cacheKey, flat, { otherText: otherTextByQuestion });
       }
     } catch (err) {
       setSubmitError((err as Error).message);

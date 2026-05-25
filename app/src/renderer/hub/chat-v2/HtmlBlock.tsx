@@ -48,6 +48,7 @@ interface Props {
 
 export function HtmlBlock({ content, complete = true, tag = 'html' }: Props): React.ReactElement {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const autoCollapsedRef = useRef<boolean>(false);
   const [naturalHeight, setNaturalHeight] = useState<number>(FALLBACK_HEIGHT_PX);
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const { resolved: theme } = useThemeMode();
@@ -68,14 +69,14 @@ export function HtmlBlock({ content, complete = true, tag = 'html' }: Props): Re
       FALLBACK_HEIGHT_PX,
     );
     setNaturalHeight(measured);
-    // Auto-collapse on the *first* measurement when content overflows
-    // the cap. Detected by checking that naturalHeight is still its
-    // initial fallback value at this call (state hasn't been updated
-    // yet — that closes around the prior render's value).
-    if (measured > MAX_HEIGHT_PX && naturalHeight === FALLBACK_HEIGHT_PX) {
+    // Auto-collapse once per content payload when content first overflows
+    // the cap. ResizeObserver callbacks can keep firing after the user
+    // manually expands, so this must be tracked outside render state.
+    if (measured > MAX_HEIGHT_PX && !autoCollapsedRef.current) {
+      autoCollapsedRef.current = true;
       setCollapsed(true);
     }
-  }, [naturalHeight]);
+  }, []);
 
   // Re-measure on load and on any subsequent DOM mutation. Without
   // scripts inside the iframe the document rarely resizes after load,
@@ -86,6 +87,8 @@ export function HtmlBlock({ content, complete = true, tag = 'html' }: Props): Re
     const ifr = iframeRef.current;
     if (!ifr?.contentDocument) return;
     const doc = ifr.contentDocument;
+    const iframeWithObserver = ifr as unknown as { __htmlBlockRO?: ResizeObserver | null };
+    iframeWithObserver.__htmlBlockRO?.disconnect();
     let ro: ResizeObserver | null = null;
     try {
       ro = new ResizeObserver(() => measureAndSet());
@@ -96,12 +99,12 @@ export function HtmlBlock({ content, complete = true, tag = 'html' }: Props): Re
     }
     // Stash the observer on the iframe so we can disconnect on
     // unmount via the dataset (avoids needing a separate ref).
-    (ifr as unknown as { __htmlBlockRO?: ResizeObserver | null }).__htmlBlockRO = ro;
+    iframeWithObserver.__htmlBlockRO = ro;
   }, [measureAndSet]);
 
   useEffect(() => {
+    const ifr = iframeRef.current as unknown as { __htmlBlockRO?: ResizeObserver | null } | null;
     return () => {
-      const ifr = iframeRef.current as unknown as { __htmlBlockRO?: ResizeObserver | null } | null;
       ifr?.__htmlBlockRO?.disconnect();
     };
   }, []);
@@ -109,6 +112,7 @@ export function HtmlBlock({ content, complete = true, tag = 'html' }: Props): Re
   // When the content prop changes (e.g. additional streaming arrived
   // and the parent re-rendered), reset measurement so layout re-runs.
   useEffect(() => {
+    autoCollapsedRef.current = false;
     setNaturalHeight(FALLBACK_HEIGHT_PX);
   }, [content]);
 
