@@ -21,6 +21,20 @@ function normalizeSettingsOpenPayload(raw: unknown): SettingsOpenPayload | undef
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Structured renderer log bridge — see renderer/shared/logger.ts and
+  // main/rendererLogIpc.ts. Fire-and-forget; never blocks the caller.
+  log: (
+    level: 'debug' | 'info' | 'warn' | 'error',
+    ns: string,
+    msg: string,
+    extra?: Record<string, unknown>,
+  ): void => {
+    try {
+      ipcRenderer.send('renderer:log', level, ns, msg, extra);
+    } catch {
+      // Swallow — logging must not crash the renderer.
+    }
+  },
   shell: {
     platform: process.platform,
     getPlatform: (): Promise<string> => ipcRenderer.invoke('shell:get-platform'),
@@ -228,6 +242,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sessions:download-output', filePath),
     revealOutput: (filePath: string): Promise<{ revealed: boolean }> =>
       ipcRenderer.invoke('sessions:reveal-output', filePath),
+    getAttachmentsByTurn: (
+      sessionId: string,
+      turnIndex: number,
+    ): Promise<Array<{ id: number; name: string; mime: string; size: number; dataUrl?: string }>> =>
+      ipcRenderer.invoke('sessions:get-attachments-by-turn', { sessionId, turnIndex }),
     readSkill: (payload: { domainTopic?: string; absPath?: string }): Promise<
       | { ok: true; path: string; filename: string; sizeBytes: number; mtimeMs: number; lineCount: number; title: string; description: string; body: string; truncated: boolean }
       | { ok: false; error: string }

@@ -71,6 +71,10 @@ export interface OutputEntry {
   // file_output metadata
   fileSize?: number;
   fileMime?: string;
+  // user_input metadata: index into session_attachments for files the user
+  // attached to this turn (pasted/dropped images, etc.). Renderer-side
+  // UserBubble queries `sessions:get-attachments-by-turn` with this.
+  attachmentTurnIndex?: number;
 }
 
 let _adapterId = 0;
@@ -99,7 +103,7 @@ export function hlEventToOutputEntry(event: HlEvent, timestamp: number, stableId
     case 'error':
       return { id, type: 'error', timestamp, content: event.message };
     case 'user_input':
-      return { id, type: 'user_input', timestamp, content: event.text };
+      return { id, type: 'user_input', timestamp, content: event.text, attachmentTurnIndex: event.attachmentTurnIndex };
     case 'skill_written':
       return { id, type: 'skill_written', timestamp, content: `${event.domain}/${event.topic}`, tool: event.path, harnessAction: event.action };
     case 'skill_used':

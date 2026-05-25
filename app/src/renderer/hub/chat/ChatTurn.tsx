@@ -10,6 +10,11 @@ import { TerminalSpinner, Elapsed } from './TerminalSpinner';
 import { useCyclingVerb } from './spinnerVerbs';
 import { formatUserMessageWithQuote, parseUserMessage } from './parseUserMessage';
 import { FinderIcon } from '@/renderer/shared/editorIcons';
+import { AttachmentList, type AttachmentItem } from '../chat-v2/Attachments';
+import { extractAll } from '../chat-v2/htmlBlocks';
+import { HtmlBlock } from '../chat-v2/HtmlBlock';
+import { OptionList } from '../chat-v2/OptionList';
+import { AskForm } from '../chat-v2/AskForm';
 
 const USER_BUBBLE_CLAMP_LINES = 10;
 const USER_BUBBLE_CLAMP_CHARS = 600;
@@ -40,10 +45,12 @@ function EditIcon(): React.ReactElement {
   );
 }
 
-function UserBubble({ content, onEdit, onShare }: {
+function UserBubble({ content, onEdit, onShare, sessionId, attachmentTurnIndex }: {
   content: string;
   onEdit?: (text: string) => void;
   onShare?: () => void;
+  sessionId?: string;
+  attachmentTurnIndex?: number;
 }): React.ReactElement {
   const { quote, message } = parseUserMessage(content);
   const body = message || ''; // message can be empty if user sent quote-only
@@ -55,6 +62,33 @@ function UserBubble({ content, onEdit, onShare }: {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(body);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Files the user attached to this turn (pasted images, drag-drops).
+  // Fetched lazily over IPC so we don't bloat the session payload.
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
+  useEffect(() => {
+    if (!sessionId || attachmentTurnIndex === undefined) {
+      setAttachments([]);
+      return;
+    }
+    let cancelled = false;
+    const api = (window as unknown as { electronAPI?: { sessions?: { getAttachmentsByTurn?: (s: string, t: number) => Promise<Array<{ id: number; name: string; mime: string; size: number; dataUrl?: string }>> } } }).electronAPI;
+    const request = api?.sessions?.getAttachmentsByTurn?.(sessionId, attachmentTurnIndex);
+    if (!request) return () => { cancelled = true; };
+    request
+      .then((rows) => {
+        if (cancelled) return;
+        setAttachments(rows.map((r) => ({
+          key: String(r.id),
+          name: r.name,
+          mime: r.mime,
+          src: r.mime.startsWith('image/') ? r.dataUrl : undefined,
+          meta: formatBytes(r.size),
+        })));
+      })
+      .catch((err) => { console.error('[UserBubble] getAttachmentsByTurn failed', err); });
+    return () => { cancelled = true; };
+  }, [sessionId, attachmentTurnIndex]);
 
   const resizeEditArea = (): void => {
     const ta = editTextareaRef.current;
@@ -138,6 +172,11 @@ function UserBubble({ content, onEdit, onShare }: {
 
   return (
     <div className="chat-bubble__wrap">
+      {attachments.length > 0 && (
+        <div className="chat-bubble__attachments">
+          <AttachmentList items={attachments} variant="gallery" />
+        </div>
+      )}
       <div className={`chat-bubble${clamped ? ' chat-bubble--clamped' : ''}`}>
         {quote && (
           <div className="chat-bubble__quote">{quote}</div>
@@ -193,6 +232,9 @@ interface ChatTurnProps {
   onEditMessage?: (text: string) => void;
   onShare?: () => void;
   isLatest?: boolean;
+  /** Threaded through to UserBubble so it can fetch attachments persisted
+   *  in session_attachments for this turn's `attachmentTurnIndex`. */
+  sessionId?: string;
 }
 
 function AssistantActions({
@@ -364,29 +406,69 @@ function stableMarkdown(s: string): string {
  */
 function StreamingProse({
   target,
-  hoistedImages,
   done,
+  sessionId,
 }: {
   target: string;
-  hoistedImages?: OutputEntry[];
   done: boolean;
+  sessionId?: string;
 }): React.ReactElement {
-  // If we mount with `done` already true (re-opening a finished task), skip
-  // the animation entirely. Without this the typewriter would re-stream every
-  // completed message from scratch each time you reopen the chat.
+  // Run the block extractor over the full target. Recognizes `html`,
+  // `htmlview`, and `options` fences and emits structured events for
+  // each. Cheap to run (regex-based, pure) — re-execute on every render.
+  const events = extractAll([target]);
+  const hasStructuredBlock = events.some((e) => e.kind === 'html_block' || e.kind === 'option_list' || e.kind === 'ask_form');
+  // Hook must run unconditionally (rules-of-hooks); result is only consumed
+  // on the no-structured-block branch below.
   const shown = useTypewriter(target, 110, done);
-  const caughtUp = shown.length >= target.length;
-  const stillStreaming = !done || !caughtUp;
+
+  // If the model didn't emit any structured blocks, preserve the
+  // existing typewriter + stable-markdown flow exactly as it was.
+  if (!hasStructuredBlock) {
+    const caughtUp = shown.length >= target.length;
+    const stillStreaming = !done || !caughtUp;
+    return (
+      <div className={`chat-step__assistant${stillStreaming ? ' chat-step__assistant--streaming' : ''}`}>
+        <Markdown source={stableMarkdown(shown) || (done ? '(done)' : '')} />
+      </div>
+    );
+  }
+
+  // Structured blocks present — skip the typewriter (it doesn't
+  // compose well with iframe artifacts or interactive pickers) and
+  // render each segment in document order.
   return (
-    <div className={`chat-step__assistant${stillStreaming ? ' chat-step__assistant--streaming' : ''}`}>
-      {hoistedImages?.map((img) => <FloatedImage key={img.id} entry={img} />)}
-      {/* Render markdown of the typewritten substring, with any unclosed
-          fences temporarily closed so the parser doesn't flip the rest of the
-          document into a code block as it streams in. Avoids both the
-          "partial-markdown rewriting" jitter AND the streaming→markdown
-          handoff layout shift, by keeping one consistent renderer the whole
-          time. */}
-      <Markdown source={stableMarkdown(shown) || (done ? '(done)' : '')} />
+    <div className={`chat-step__assistant${!done ? ' chat-step__assistant--streaming' : ''}`}>
+      {events.map((e, i) => {
+        if (e.kind === 'text') {
+          return e.text.trim().length === 0
+            ? null
+            : <Markdown key={i} source={stableMarkdown(e.text)} />;
+        }
+        if (e.kind === 'html_block') {
+          return <HtmlBlock key={i} content={e.content} complete={e.complete} tag={e.tag} />;
+        }
+        if (e.kind === 'ask_form') {
+          return (
+            <AskForm
+              key={i}
+              payload={e.parsed}
+              complete={e.complete}
+              error={e.error}
+              sessionId={sessionId}
+            />
+          );
+        }
+        return (
+          <OptionList
+            key={i}
+            payload={e.parsed}
+            complete={e.complete}
+            error={e.error}
+            sessionId={sessionId}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -663,22 +745,16 @@ function normalizeProse(s: string): string {
   return (s || '').trim().replace(/\s+/g, ' ');
 }
 
-function renderAgentEntries(entries: OutputEntry[], isLive: boolean): React.ReactElement[] {
-  // Defer ALL image file_outputs until the trailing `done` block exists, then
-  // float them inside it (magazine layout). Rendering them in-place as they
-  // stream in causes a visible jump: image lands as a standalone block during
-  // streaming, then snaps to a floated inset once `done` arrives. Better to
-  // wait — the image appears once, in its final spot.
+function renderAgentEntries(entries: OutputEntry[], isLive: boolean, sessionId?: string): React.ReactElement[] {
+  // Find the trailing prose target: the last `done`, or the trailing live
+  // `thinking` if no `done` has landed yet. Both get suppressed from regular
+  // per-entry rendering and collapsed into a single <StreamingProse> at the
+  // tail, with a stable key so the typewriter cursor persists across the
+  // thinking→done swap.
   let lastDoneIdx = -1;
   for (let i = entries.length - 1; i >= 0; i--) {
     if (entries[i].type === 'done') { lastDoneIdx = i; break; }
   }
-
-  // Trailing "streaming prose": the live `thinking` that's currently growing
-  // (last entry, no `done` yet) OR the `done` entry once it lands. Both get
-  // suppressed from regular per-entry rendering and collapsed into a single
-  // <StreamingProse> at the tail, with a stable key so the typewriter cursor
-  // persists across the thinking→done swap.
   let trailingThinkingIdx = -1;
   if (lastDoneIdx === -1 && entries.length > 0 && entries[entries.length - 1].type === 'thinking') {
     trailingThinkingIdx = entries.length - 1;
@@ -692,27 +768,58 @@ function renderAgentEntries(entries: OutputEntry[], isLive: boolean): React.Reac
   // from scratch.
   const proseDone = lastDoneIdx >= 0 || !isLive;
 
-  const hoistedImages: OutputEntry[] = [];
-  const hoistedIds = new Set<string>();
-  for (const e of entries) {
-    if (e.type === 'file_output' && e.fileMime?.startsWith('image/')) {
-      if (lastDoneIdx >= 0) {
-        hoistedIds.add(e.id);
-        hoistedImages.push(e);
-      }
-    }
-  }
-
-  const out: React.ReactElement[] = [];
+  // Magazine-style float anchor. The first image file_output stays put at
+  // the position it was emitted (mid-session, when the screenshot was taken)
+  // and the rest of the turn — subsequent tool groups, thinking, and the
+  // trailing streaming prose — lives inside a `display: flow-root` wrapper
+  // so it wraps around the float. Nothing reflows when `done` lands; the
+  // prose just keeps growing alongside the same floated image.
+  const before: React.ReactElement[] = [];
+  const after: React.ReactElement[] = [];
+  let firstImage: OutputEntry | null = null;
+  let target = before;
   let batch: OutputEntry[] = [];
-  const flush = () => {
+  let fileBatch: OutputEntry[] = [];
+  const flush = (): void => {
     if (batch.length === 0) return;
-    out.push(<ToolGroup key={`group-${batch[0].id}`} entries={batch} />);
+    target.push(<ToolGroup key={`group-${batch[0].id}`} entries={batch} />);
     batch = [];
+  };
+  // AI SDK Elements–shaped Attachments: collapse a run of consecutive
+  // file_output entries (that aren't acting as the float anchor) into one
+  // grid instead of one FileCard per row.
+  const flushFiles = (): void => {
+    if (fileBatch.length === 0) return;
+    const items: AttachmentItem[] = fileBatch.map((e) => {
+      const absPath = e.tool ?? '';
+      const name = e.content || absPath.split('/').pop() || 'file';
+      const ext = name.includes('.') ? name.split('.').pop()!.toUpperCase() : '';
+      const sizeLabel = formatBytes(e.fileSize);
+      const meta = [ext, sizeLabel].filter(Boolean).join(' · ');
+      const src = e.fileMime?.startsWith('image/') && absPath
+        ? `chatfile://files${encodeURI(absPath)}`
+        : undefined;
+      return {
+        key: e.id,
+        name,
+        mime: e.fileMime,
+        meta,
+        src,
+        onClick: absPath
+          ? () => {
+              const request = window.electronAPI?.sessions?.revealOutput?.(absPath);
+              request?.catch((err) => console.error('[Attachments] revealOutput failed', err));
+            }
+          : undefined,
+      };
+    });
+    target.push(<AttachmentList key={`files-${fileBatch[0].id}`} items={items} variant="grid" />);
+    fileBatch = [];
   };
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
     if (e.type === 'tool_call') {
+      flushFiles();
       batch.push(e);
       continue;
     }
@@ -727,27 +834,56 @@ function renderAgentEntries(entries: OutputEntry[], isLive: boolean): React.Reac
         continue;
       }
     }
-    // Skip file_output entries that were hoisted into the trailing done block.
-    if (hoistedIds.has(e.id)) continue;
     // Suppress the trailing thinking and done — they get collapsed into the
     // single <StreamingProse> appended after the loop.
     if (i === proseTargetIdx) continue;
+
+    // First image becomes the float anchor: switch the render target so
+    // everything after the image lives inside the float context. The image
+    // itself is rendered as the first child of the wrapper below.
+    if (
+      !firstImage
+      && e.type === 'file_output'
+      && e.fileMime?.startsWith('image/')
+      && e.tool
+    ) {
+      flushFiles();
+      firstImage = e;
+      target = after;
+      continue;
+    }
+
+    if (e.type === 'file_output') {
+      fileBatch.push(e);
+      continue;
+    }
+    flushFiles();
     const rendered = <AgentEntry key={e.id} entry={e} />;
-    if (rendered) out.push(rendered);
+    if (rendered) target.push(rendered);
   }
   flush();
+  flushFiles();
 
   if (proseTarget) {
-    out.push(
+    target.push(
       <StreamingProse
         key="prose-tail"
         target={proseTarget}
         done={proseDone}
-        hoistedImages={hoistedImages}
+        sessionId={sessionId}
       />,
     );
   }
-  return out;
+
+  if (!firstImage) return before;
+
+  return [
+    ...before,
+    <div key="image-flow" className="chat-step__image-flow">
+      <FloatedImage entry={firstImage} />
+      {after}
+    </div>,
+  ];
 }
 
 function InflightLabel({ since }: { since: number }): React.ReactElement {
@@ -761,7 +897,7 @@ function InflightLabel({ since }: { since: number }): React.ReactElement {
   );
 }
 
-export function ChatTurn({ turn, inflightSince, onEditMessage, onShare, isLatest }: ChatTurnProps): React.ReactElement {
+export function ChatTurn({ turn, inflightSince, onEditMessage, onShare, isLatest, sessionId }: ChatTurnProps): React.ReactElement {
   const showInflight = inflightSince !== undefined;
   return (
     <div className={`chat-turn${isLatest ? ' chat-turn--latest' : ''}`}>
@@ -770,12 +906,14 @@ export function ChatTurn({ turn, inflightSince, onEditMessage, onShare, isLatest
           content={turn.userEntry.content}
           onEdit={onEditMessage}
           onShare={onShare}
+          sessionId={sessionId}
+          attachmentTurnIndex={turn.userEntry.attachmentTurnIndex}
         />
       )}
       {(showInflight || turn.agentEntries.length > 0 || isLatest) && (
         <div className="chat-agent">
           {showInflight && <InflightLabel since={inflightSince!} />}
-          {renderAgentEntries(turn.agentEntries, showInflight)}
+          {renderAgentEntries(turn.agentEntries, showInflight, sessionId)}
           {!showInflight && isLatest && (
             <AssistantActions
               content={turn.agentEntries.find((e) => e.type === 'done')?.content ?? ''}

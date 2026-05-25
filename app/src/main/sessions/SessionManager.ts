@@ -608,6 +608,15 @@ export class SessionManager extends EventEmitter {
     return this.db.getAttachmentsMeta(sessionId);
   }
 
+  /** Public passthrough for renderer-side rendering of attached files
+   *  alongside user messages. Returns bytes so the IPC layer can convert
+   *  to a data URL the renderer can <img src=...>. Kept on SessionManager
+   *  (rather than going straight to the DB from the IPC handler) so the
+   *  manager stays the single owner of session-scoped reads. */
+  getAttachmentsByTurnIndex(sessionId: string, turnIndex: number): Array<{ id: number; name: string; mime: string; bytes: Buffer; size: number; turn_index: number }> {
+    return this.db.getAttachmentsByTurnIndex(sessionId, turnIndex);
+  }
+
   loadAttachmentsForRun(sessionId: string): AttachmentRow[] {
     const session = this.sessions.get(sessionId);
     if (session) {

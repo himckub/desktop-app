@@ -17,6 +17,83 @@ export const SKILL_DISCOVERY_AND_LIFECYCLE_LINES = [
   'Do not write skills for one-off facts/calculations, temporary page state, secrets/tokens, private account details, failed/speculative workflows, or content that belongs in the task output.',
 ];
 
+/**
+ * Provider-neutral nudge that the renderer can surface structured content
+ * (plans, comparisons, multi-step explanations, diffs, status reports) as
+ * sandboxed HTML artifacts via ```html fenced blocks. The renderer
+ * extracts them and shows them in an iframe — static HTML + CSS only, no
+ * JavaScript executes.
+ *
+ * Theme is injected so the agent picks palette colors that match the
+ * current desktop app theme. The 'neobrutalist-html' interaction skill
+ * defines the visual rules (borders/shadows/palette); this constant only
+ * tells the agent the channel exists and what theme to target.
+ */
+/**
+ * Active-palette summary the agent can paste verbatim. Kept in sync with
+ * the 'neobrutalist-html' interaction skill — change them together.
+ */
+const ACTIVE_PALETTE = {
+  light: {
+    cardBg: '#f4ecd8',
+    border: '#000',
+    shadow: '#000',
+    fg: '#000',
+    accents: 'red #ff2b2b, blue #1a73ff, green #00c853, gold #ffd400',
+  },
+  dark: {
+    cardBg: '#1c1c20',
+    border: '#f4ecd8',
+    shadow: '#f4ecd8',
+    fg: '#f4ecd8',
+    accents: 'red #ff5252, blue #4ea3ff, green #3ddc84, gold #ffd400',
+  },
+} as const;
+
+export function htmlBlockGuidanceLines(theme: 'light' | 'dark' = 'dark'): string[] {
+  const p = ACTIVE_PALETTE[theme];
+  return [
+    `UI THEME: ${theme}. When you emit a \`\`\`html block, use the active palette below. The full per-theme reference lives in the 'neobrutalist-html' interaction skill.`,
+    `Active palette — card bg ${p.cardBg}, border ${p.border}, shadow ${p.shadow}, foreground ${p.fg}. Accents: ${p.accents}. Pick one bold accent + one secondary per artifact.`,
+    'HTML blocks are an optional output channel — use them when layout helps the reader (plans, comparisons, status, timelines, diffs). Conversational replies, tool previews, and short answers should stay as plain markdown.',
+    'When you emit an HTML block, keep it self-contained: inline styles or a single inline <style> tag are fine; do not reference external stylesheets, scripts, fonts, or images by URL — the sandbox blocks them.',
+  ];
+}
+
+/** @deprecated kept for callers that have not yet adopted the theme-aware
+ *  function form. Returns the dark-theme variant. */
+export const HTML_BLOCK_GUIDANCE_LINES = htmlBlockGuidanceLines('dark');
+
+/**
+ * Provider-neutral nudge for the `options` fenced block — the renderer
+ * surfaces it as a selectable card picker for human-in-the-loop choice
+ * during shopping / disambiguation tasks. The full schema, DOM
+ * extraction recipe, and turn-ending rule live in the `options-block`
+ * interaction skill.
+ */
+export function optionsBlockGuidanceLines(): string[] {
+  return [
+    'When you need the user to disambiguate between products or options that you can see in the live browser (e.g. shopping search results), emit a ```options fenced block carrying JSON: { prompt, multiSelect, min, max, options: [{ id, image, title, subtitle?, price?, merchant?, url? }] }. Each option requires id, image (absolute URL), and title; the rest are optional.',
+    'The `options` block ENDS YOUR TURN. After emitting it, do not call any more tools — stop and wait for the user. Their selection arrives as the next user message in the form "Selected from options: <title> (id: <id>)" so you can resume on the same browser session.',
+    'See the `options-block` interaction skill for the full schema, DOM-extraction snippet for grabbing image URLs / titles / prices from product tiles, and worked examples.',
+  ];
+}
+
+/**
+ * Provider-neutral nudge for the `ask` fenced block — the renderer
+ * surfaces it as a text-only questionnaire (radio/checkbox per
+ * question, automatic "Other…" text input). For disambiguation and
+ * requirements gathering BEFORE you start browsing or building. See
+ * the `ask-block` interaction skill for the full schema and examples.
+ */
+export function askBlockGuidanceLines(): string[] {
+  return [
+    'When you need the user to answer one or more text-only multiple-choice questions to disambiguate intent or gather requirements (e.g. "what kind of SSD?", "which framework?", "what budget?"), emit a ```ask fenced block carrying JSON: { prompt?, questions: [{ question, header?, multiSelect, allowOther?, options: [{ label, description? }] }] }. Each question must have a `question` string and at least one valid option; the renderer auto-appends an "Other…" text input unless `allowOther: false`.',
+    'The `ask` block ENDS YOUR TURN. After emitting it, do not call any more tools — stop and wait for the user. Their answers arrive as the next user message shaped like "Answered:\\n- Capacity: 2 TB\\n- Budget: Other: around $250" so you can resume with the new context.',
+    'Choose between `ask` and `options`: use `ask` for text-only choices (form factor, capacity, framework, budget tier). Use `options` for image-driven product/listing picks. See the `ask-block` interaction skill for the full schema and worked examples.',
+  ];
+}
+
 function normalizeSlash(value: string): string {
   return value.split(path.sep).join('/');
 }

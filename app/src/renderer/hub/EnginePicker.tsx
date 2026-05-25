@@ -8,6 +8,9 @@ import { BrowserCodeProviderSubmenu } from './BrowserCodeModelPicker';
 import { useThemedAsset } from '../design/useThemedAsset';
 import { pollInstalledStatus } from '../shared/installStatus';
 import { closeAppPopup, openAnchoredAppPopup } from '../shared/appPopup';
+import { makeLogger } from '@/renderer/shared/logger';
+
+const log = makeLogger('EnginePicker');
 
 export interface EngineInfo {
   id: string;
@@ -68,12 +71,12 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const refreshStatus = useCallback(async (ids: string[]): Promise<EngineStatus[]> => {
-    console.info('[EnginePicker] refreshStatus.request', { ids });
+    log.info('refreshStatus.request', { ids });
     const updates = await Promise.all(
       ids.map(async (id) => {
         try { return await window.electronAPI?.sessions?.engineStatus?.(id); }
         catch (err) {
-          console.warn('[EnginePicker] refreshStatus.failed', { id, error: (err as Error).message });
+          log.warn('refreshStatus.failed', { id, error: (err as Error).message });
           return null;
         }
       }),
@@ -93,7 +96,7 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
       setEngines(list);
       if (list.length > 0) void refreshStatus(list.map((e) => e.id));
     } catch (err) {
-      console.error('[EnginePicker] listEngines failed', err);
+      log.error('listEngines failed', err);
     }
   }, [refreshStatus]);
 
@@ -178,17 +181,17 @@ export function EnginePickerMenuContent({
   const installingRef = useRef<string | null>(null);
 
   const refreshStatus = useCallback(async (ids: string[]): Promise<EngineStatus[]> => {
-    console.info('[EnginePicker] refreshStatus.request', { ids });
+    log.info('refreshStatus.request', { ids });
     const updates = await Promise.all(
       ids.map(async (id) => {
         try { return await window.electronAPI?.sessions?.engineStatus?.(id); }
         catch (err) {
-          console.warn('[EnginePicker] refreshStatus.failed', { id, error: (err as Error).message });
+          log.warn('refreshStatus.failed', { id, error: (err as Error).message });
           return null;
         }
       }),
     );
-    console.info('[EnginePicker] refreshStatus.result', {
+    log.info('refreshStatus.result', {
       updates: updates.filter(Boolean).map((u) => ({
         id: u?.id,
         installed: u?.installed?.installed,
@@ -214,7 +217,7 @@ export function EnginePickerMenuContent({
         if (cancelled) return;
         setEngines(list);
         if (list.length > 0) void refreshStatus(list.map((e) => e.id));
-      } catch (err) { console.error('[EnginePicker] listEngines failed', err); }
+      } catch (err) { log.error('listEngines failed', err); }
     })();
     return () => { cancelled = true; };
   }, [refreshStatus]);
@@ -255,62 +258,62 @@ export function EnginePickerMenuContent({
   }, [loggingIn, refreshStatus]);
 
   const selectEngine = (id: string): void => {
-    console.info('[EnginePicker] selectEngine', { id });
+    log.info('selectEngine', { id });
     onChange(id);
     onClose?.();
   };
 
   const onLoginClick = async (id: string): Promise<void> => {
     if (loggingInRef.current === id) return;
-    console.info('[EnginePicker] login.request', { id });
+    log.info('login.request', { id });
     loggingInRef.current = id;
     setLoggingIn(id);
     try {
       const result = await window.electronAPI?.sessions?.engineLogin?.(id);
-      console.info('[EnginePicker] login.result', { id, result });
+      log.info('login.result', { id, result });
       if (!result?.opened) {
         loggingInRef.current = null;
         setLoggingIn(null);
       }
     } catch (err) {
-      console.error('[EnginePicker] engineLogin failed', err);
+      log.error('engineLogin failed', err);
       loggingInRef.current = null;
       setLoggingIn(null);
     }
   };
 
   const openBrowserCodeSetup = async (): Promise<void> => {
-    console.info('[EnginePicker] browsercode.setup.openSettings');
+    log.info('browsercode.setup.openSettings');
     onChange('browsercode');
     onClose?.();
     try {
       await window.electronAPI?.settings?.open?.();
     } catch (err) {
-      console.error('[EnginePicker] browsercode.setup.openSettings.failed', err);
+      log.error('browsercode.setup.openSettings.failed', err);
     }
   };
 
   const onInstallClick = async (id: string): Promise<void> => {
     if (installingRef.current === id) return;
-    console.info('[EnginePicker] install.request', { id });
+    log.info('install.request', { id });
     installingRef.current = id;
     setInstalling(id);
     try {
       const result = await window.electronAPI?.sessions?.engineInstall?.(id);
-      console.info('[EnginePicker] install.result', { id, result });
+      log.info('install.result', { id, result });
       if (result?.opened) {
         const status = await pollInstalledStatus(async () => {
           const updates = await refreshStatus([id]);
           const next = updates.find((u) => u.id === id);
           return next?.installed ?? null;
         }, { initialInstalled: result.installed });
-        if (!status?.installed) console.warn('[EnginePicker] engineInstall failed', { id, result });
+        if (!status?.installed) log.warn('engineInstall failed', { id, result });
       } else {
-        console.warn('[EnginePicker] engineInstall failed', { id, result });
+        log.warn('engineInstall failed', { id, result });
         await refreshStatus([id]);
       }
     } catch (err) {
-      console.error('[EnginePicker] engineInstall failed', err);
+      log.error('engineInstall failed', err);
     } finally {
       installingRef.current = null;
       setInstalling((current) => (current === id ? null : current));
@@ -318,7 +321,7 @@ export function EnginePickerMenuContent({
   };
 
   const onItemClick = (id: string, installed: boolean, authed: boolean): void => {
-    console.info('[EnginePicker] item.click', { id, installed, authed });
+    log.info('item.click', { id, installed, authed });
     if (installingRef.current === id || loggingInRef.current === id) return;
     if (!installed) {
       void onInstallClick(id);

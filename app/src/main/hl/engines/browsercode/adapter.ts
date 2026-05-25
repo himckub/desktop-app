@@ -8,7 +8,8 @@
 
 import { register } from '../registry';
 import { applyBrowserHarnessEnv } from '../browserHarnessEnv';
-import { buildSkillIndexPrompt, SKILL_DISCOVERY_AND_LIFECYCLE_LINES } from '../skillIndexPrompt';
+import { buildSkillIndexPrompt, SKILL_DISCOVERY_AND_LIFECYCLE_LINES, htmlBlockGuidanceLines, optionsBlockGuidanceLines, askBlockGuidanceLines } from '../skillIndexPrompt';
+import { resolveThemeMode } from '../../../themeMode';
 import { enrichedEnv } from '../pathEnrich';
 import { runCliCapture } from '../cliSpawn';
 import type {
@@ -175,6 +176,9 @@ const browserCodeAdapter: EngineAdapter = {
       `Your target is CDP target_id=${ctx.targetId} on port ${ctx.cdpPort} (env BU_TARGET_ID / BU_CDP_PORT).`,
       'Do not use BrowserCode browser_execute. Read `./AGENTS.md` and use Browser Harness JS from this working directory for browser actions.',
       ...SKILL_DISCOVERY_AND_LIFECYCLE_LINES,
+      ...htmlBlockGuidanceLines(resolveThemeMode()),
+      ...optionsBlockGuidanceLines(),
+      ...askBlockGuidanceLines(),
       "Use the `browser-harness-js` CLI for browser actions. Start with `browser-harness-js 'await connectToAssignedTarget()'`.",
       'Do not use old helpers.js convenience APIs for browser control.',
       'Do not edit harness files unless the user asks or a confirmed Browser Harness JS defect blocks the task.',

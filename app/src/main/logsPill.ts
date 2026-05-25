@@ -10,6 +10,7 @@ import path from 'node:path';
 import { mainLogger, rendererLogger } from './logger';
 import { registerViteDepStaleHeal } from './viteDepStaleHeal';
 import { getWindowBackgroundColor } from './themeMode';
+import { isIgnorableRendererMessage } from '../shared/rendererNoise';
 
 const log = {
   info: (c: string, x: object) => mainLogger.info(c, x as Record<string, unknown>),
@@ -316,6 +317,7 @@ export function createLogsWindow(): BrowserWindow {
     log.error('logs.preload-error', { preloadPath, error: (err as Error).message });
   });
   logsWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    if (isIgnorableRendererMessage(message)) return;
     rendererLogger.info('renderer.console', { window: 'logs', level, message, line, sourceId });
   });
 

@@ -92,9 +92,70 @@ describe('ChatTurn', () => {
     };
     const { container, root } = renderTurn(turn, { isLatest: true });
 
-    const image = container.querySelector<HTMLImageElement>('.chat-step__image img');
+    // First image-type file_output is rendered as the floated anchor.
+    // The Attachments grid is reserved for non-image and trailing
+    // attachments (see renderAgentEntries' firstImage handling).
+    const image = container.querySelector<HTMLImageElement>(
+      '.chat-step__image img, .chatv2-attachment img',
+    );
     expect(image).not.toBeNull();
     expect(image?.getAttribute('src')).toBe('chatfile://files/tmp/session/screenshot.png');
+    act(() => root.unmount());
+  });
+
+  it('does not throw when attachment IPC is unavailable for a user turn', () => {
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: { sessions: {} },
+    });
+    const turn: Turn = {
+      id: 'turn-1',
+      userEntry: {
+        id: 'user-1',
+        type: 'user_input',
+        timestamp: 1000,
+        content: 'see attached',
+        attachmentTurnIndex: 0,
+      },
+      agentEntries: [],
+    };
+    let rendered: { container: HTMLDivElement; root: Root } | null = null;
+
+    expect(() => {
+      rendered = renderTurn(turn, { sessionId: 'session-1' });
+    }).not.toThrow();
+
+    act(() => rendered?.root.unmount());
+  });
+
+  it('does not throw when revealOutput is unavailable for file attachments', () => {
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: { sessions: {} },
+    });
+    const turn: Turn = {
+      id: 'turn-1',
+      userEntry: null,
+      agentEntries: [
+        {
+          id: 'file-1',
+          type: 'file_output',
+          timestamp: 1000,
+          content: 'report.pdf',
+          tool: '/tmp/session/report.pdf',
+          fileMime: 'application/pdf',
+          fileSize: 1234,
+        },
+      ],
+    };
+    const { container, root } = renderTurn(turn, { isLatest: true });
+
+    expect(() => {
+      act(() => {
+        container.querySelector<HTMLElement>('.chatv2-attachment')?.click();
+      });
+    }).not.toThrow();
+
     act(() => root.unmount());
   });
 });

@@ -45,6 +45,10 @@ interface ElectronSessionAPI {
   delete: (id: string) => Promise<void>;
   downloadOutput: (filePath: string) => Promise<{ opened: boolean }>;
   revealOutput: (filePath: string) => Promise<{ revealed: boolean }>;
+  getAttachmentsByTurn?: (
+    sessionId: string,
+    turnIndex: number,
+  ) => Promise<Array<{ id: number; name: string; mime: string; size: number; dataUrl?: string }>>;
   readSkill: (payload: { domainTopic?: string; absPath?: string }) => Promise<
     | { ok: true; path: string; filename: string; sizeBytes: number; mtimeMs: number; lineCount: number; title: string; description: string; body: string; truncated: boolean }
     | { ok: false; error: string }

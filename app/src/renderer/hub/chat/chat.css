@@ -710,6 +710,15 @@
   margin: 0 0 8px 16px;
   shape-outside: margin-box;
 }
+/* Float context for the magazine-style image wrap. The first image in an
+   agent turn becomes a `float: right` anchor; every subsequent block in the
+   same turn lives inside this wrapper so it wraps around the float instead
+   of clearing past it. `display: flow-root` is the modern containment trick
+   that establishes a new block-formatting context without the
+   `overflow: hidden` side effects. */
+.chat-step__image-flow {
+  display: flow-root;
+}
 .chat-step__image--floated img {
   width: 100%;
   height: 100%;
@@ -1245,6 +1254,7 @@
   padding: 11px 15px;
   border: 1px dashed var(--color-border-subtle);
   border-radius: 10px;
+  background-color: var(--color-bg-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;

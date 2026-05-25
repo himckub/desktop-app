@@ -11,12 +11,14 @@ import '../design/theme.global.css';
 import '../design/empty-states.css';
 import './pill.css';
 import { initThemeMode } from '../design/themeMode';
+import { isIgnorableRendererMessage } from '@/shared/rendererNoise';
 
 // Apply shell theme (dark Linear+Obsidian) — pill uses same palette
 document.documentElement.dataset.theme = 'shell';
 initThemeMode();
 
 window.addEventListener('error', (e) => {
+  if (isIgnorableRendererMessage(e.message)) return;
   console.error('renderer.error', { message: e.message, file: e.filename, line: e.lineno });
 });
 window.addEventListener('unhandledrejection', (e) => {

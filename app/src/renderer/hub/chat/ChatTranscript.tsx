@@ -121,6 +121,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    let resizeFrame: number | null = null;
     const apply = (): void => {
       const cs = getComputedStyle(el);
       const padTop = parseFloat(cs.paddingTop) || 0;
@@ -135,13 +136,23 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
       const needed = el.clientHeight - padTop - bubbleH - padBot;
       el.style.setProperty('--chat-agent-latest-h', `${Math.max(0, needed)}px`);
     };
+    const scheduleApply = (): void => {
+      if (resizeFrame !== null) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = null;
+        apply();
+      });
+    };
     apply();
-    const ro = new ResizeObserver(apply);
+    const ro = new ResizeObserver(scheduleApply);
     ro.observe(el);
     // Re-measure when the latest bubble itself resizes (long messages, edits).
     const bubble = el.querySelector('.chat-turn--latest .chat-bubble__wrap') as HTMLElement | null;
     if (bubble) ro.observe(bubble);
-    return () => ro.disconnect();
+    return () => {
+      if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
+      ro.disconnect();
+    };
   }, [turns]);
 
   // Scroll-pin: stay glued to bottom when user is at the bottom; release
@@ -273,6 +284,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
         <ChatTurn
           key={t.id}
           turn={t}
+          sessionId={sessionId}
           inflightSince={showThinking && i === turns.length - 1 ? since : undefined}
           onEditMessage={i === firstUserTurnIdx ? onEditMessage : undefined}
           onShare={i === firstUserTurnIdx ? onShare : undefined}

@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import { mainLogger, rendererLogger } from './logger';
 import { registerViteDepStaleHeal } from './viteDepStaleHeal';
 import { getWindowBackgroundColor, getWcoSymbolColor } from './themeMode';
+import { isIgnorableRendererMessage } from '../shared/rendererNoise';
 
 declare const SHELL_VITE_DEV_SERVER_URL: string | undefined;
 
@@ -163,6 +164,7 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
   // failures without needing the user to open DevTools. Mirrors the logs
   // window's existing `logs.console` forwarding.
   win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    if (isIgnorableRendererMessage(message)) return;
     rendererLogger.info('renderer.console', { window: 'hub', level, message, line, sourceId });
   });
 

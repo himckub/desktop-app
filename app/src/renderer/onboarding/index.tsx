@@ -6,10 +6,12 @@ import { OfflineBanner } from '../components/empty/OfflineBanner';
 import '@/renderer/design/theme.global.css';
 import '../design/empty-states.css';
 import './onboarding.css';
+import { isIgnorableRendererMessage } from '@/shared/rendererNoise';
 
 document.documentElement.dataset.theme = 'shell';
 
 window.addEventListener('error', (e) => {
+  if (isIgnorableRendererMessage(e.message)) return;
   console.error('[onboarding] renderer.error', { message: e.message, file: e.filename, line: e.lineno });
 });
 
