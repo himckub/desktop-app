@@ -16,6 +16,7 @@
 
 import { app, BrowserWindow, screen, type Rectangle } from 'electron';
 import fs from 'node:fs';
+import { isIgnorableRendererMessage } from '../shared/rendererNoise';
 import path from 'node:path';
 import type { AgentEvent } from '../shared/types';
 import { mainLogger, rendererLogger } from './logger';
@@ -343,6 +344,7 @@ export function createPillWindow(): BrowserWindow {
   });
 
   pillWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    if (isIgnorableRendererMessage(message)) return;
     rendererLogger.info('renderer.console', { window: 'pill', level, source: sourceId, line, message });
   });
 

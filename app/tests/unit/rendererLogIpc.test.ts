@@ -55,6 +55,19 @@ describe('handleRendererLog — happy paths', () => {
     handleRendererLog('info', 'm', 'msg', undefined);
     expect(infoSpy).toHaveBeenCalledWith('msg', { ns: 'm' });
   });
+
+  it('drops Chromium ResizeObserver delivery warnings', () => {
+    const result = handleRendererLog('error', 'hub', 'renderer.error', {
+      message: 'ResizeObserver loop completed with undelivered notifications.',
+      file: 'http://localhost:5173/src/renderer/hub/hub.html',
+      line: 0,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(infoSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe('handleRendererLog — rejections', () => {

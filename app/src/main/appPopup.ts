@@ -11,6 +11,7 @@ import type {
 import { mainLogger, rendererLogger } from './logger';
 import { getWindowBackgroundColor } from './themeMode';
 import { registerViteDepStaleHeal } from './viteDepStaleHeal';
+import { isIgnorableRendererMessage } from '../shared/rendererNoise';
 
 const log = {
   info: (c: string, x: object) => mainLogger.info(c, x as Record<string, unknown>),
@@ -223,6 +224,7 @@ function createPopupWindow(): BrowserWindow {
   });
   if (isDev) registerViteDepStaleHeal(popupWindow, 'popup');
   popupWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    if (isIgnorableRendererMessage(message)) return;
     rendererLogger.info('renderer.console', { window: 'popup', level, message, line, sourceId });
   });
   popupWindow.webContents.on('render-process-gone', (_e, details) => {

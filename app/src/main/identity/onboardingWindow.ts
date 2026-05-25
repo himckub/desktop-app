@@ -12,6 +12,7 @@
 import path from 'node:path';
 import { BrowserWindow } from 'electron';
 import { mainLogger, rendererLogger } from '../logger';
+import { isIgnorableRendererMessage } from '../../shared/rendererNoise';
 
 // Forge VitePlugin injects these globals at build time.
 // In dev: ONBOARDING_VITE_DEV_SERVER_URL = http://localhost:<port>
@@ -72,6 +73,7 @@ export function createOnboardingWindow(): BrowserWindow {
     });
   });
   win.webContents.on('console-message', (_e, level, message, line, source) => {
+    if (isIgnorableRendererMessage(message)) return;
     rendererLogger.info('renderer.console', { window: 'onboarding', level, source, line, message });
   });
   // Load the onboarding renderer

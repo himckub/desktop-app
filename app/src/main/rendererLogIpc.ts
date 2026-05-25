@@ -12,6 +12,7 @@
 
 import { ipcMain, type IpcMainEvent } from 'electron';
 import { rendererLogger } from './logger';
+import { isIgnorableRendererLog } from '../shared/rendererNoise';
 
 const ALLOWED_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
 const MAX_NS_LEN = 80;
@@ -56,6 +57,9 @@ export function handleRendererLog(
   }
   if (typeof msg !== 'string') {
     return { ok: false, reason: 'invalid-message' };
+  }
+  if (isIgnorableRendererLog(msg, extra)) {
+    return { ok: true };
   }
   const safeMsg = msg.length > MAX_MSG_LEN ? msg.slice(0, MAX_MSG_LEN) + '…' : msg;
   const safeExtra = sanitizeExtra(extra);
