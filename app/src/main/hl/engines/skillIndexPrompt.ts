@@ -54,7 +54,7 @@ export function htmlBlockGuidanceLines(theme: 'light' | 'dark' = 'dark'): string
   const p = ACTIVE_PALETTE[theme];
   return [
     `UI THEME: ${theme}. When you emit a \`\`\`html block, use the active palette below. The full per-theme reference lives in the 'neobrutalist-html' interaction skill.`,
-    `Active palette — card bg ${p.cardBg}, border ${p.border}, shadow ${p.shadow}, foreground ${p.fg}. Accents: ${p.accents}. Pick one bold accent + one secondary per artifact.`,
+    `Active palette — card bg ${p.cardBg}, border ${p.border}, shadow ${p.shadow}, foreground ${p.fg}. Accents: ${p.accents}. Use shadow ${p.shadow} for large structural offset shadows; keep accent colors to small highlights, badges, selected metrics, or short dividers.`,
     'HTML blocks are an optional output channel — use them when layout helps the reader (plans, comparisons, status, timelines, diffs). Also use them for dense, easily organized browser results or confirmations: shopping/cart/order summaries, delivery windows, addresses, prices, quantities, retailer/site names, reservation details, selected items, and next-step choices. Conversational replies, tool previews, and short answers should stay as plain markdown.',
     'Rule of thumb: if you have 3+ concrete facts from the page that naturally fit labeled rows, columns, cards, or a receipt-style summary, emit a compact ```html block instead of burying them in a paragraph.',
     'When you emit an HTML block, keep it self-contained: inline styles or a single inline <style> tag are fine; do not reference external stylesheets, scripts, fonts, or images by URL — the sandbox blocks them.',

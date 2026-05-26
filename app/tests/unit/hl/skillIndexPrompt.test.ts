@@ -85,5 +85,7 @@ describe('html block prompt guidance', () => {
     expect(prompt).toContain('shopping/cart/order summaries');
     expect(prompt).toContain('delivery windows');
     expect(prompt).toContain('3+ concrete facts');
+    expect(prompt).toContain('Use shadow #f4ecd8 for large structural offset shadows');
+    expect(prompt).toContain('keep accent colors to small highlights');
   });
 });
