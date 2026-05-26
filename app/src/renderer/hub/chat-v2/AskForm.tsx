@@ -406,19 +406,33 @@ export function deriveAskSubmission(
     const qIdx = questions.findIndex((q) => (q.header || q.question) === labelPrefix);
     if (qIdx < 0) continue;
 
-    // Values are comma-separated; `Other: <text>` may itself contain a comma
-    // in theory, but the writer joins with ", " — so split on /,\s+/ which
-    // is tolerant of the common cases without overfitting to oddities.
-    for (const raw of valuesStr.split(/,\s+/)) {
+    // Values are comma-separated. A free-text `Other: <text>` answer can
+    // itself contain commas, so we can't blindly split. Strategy: find
+    // ", Other:" (or a leading "Other:") and treat everything from there
+    // to the end of the line as a single Other value. The remainder is
+    // safe to split on /,\s+/ because predefined option labels are
+    // controlled by the agent and don't carry user free text.
+    let valuesPart = valuesStr;
+    let otherTail: string | null = null;
+    const otherIdx = (() => {
+      const leading = valuesPart.match(/^Other(?::|$)/);
+      if (leading) return 0;
+      const m = valuesPart.match(/,\s+Other(?::|$)/);
+      return m && m.index !== undefined ? m.index + m[0].indexOf('Other') : -1;
+    })();
+    if (otherIdx >= 0) {
+      otherTail = valuesPart.slice(otherIdx);
+      valuesPart = valuesPart.slice(0, otherIdx).replace(/,\s*$/, '');
+    }
+    for (const raw of valuesPart.split(/,\s+/)) {
       const v = raw.trim();
       if (!v) continue;
-      if (v === 'Other') {
-        selection[qIdx].add(OTHER_TOKEN);
-      } else if (v.startsWith('Other:')) {
-        selection[qIdx].add(OTHER_TOKEN);
-        otherTextByKey[questionCacheKey(questions[qIdx])] = v.slice('Other:'.length).trim();
-      } else {
-        selection[qIdx].add(v);
+      selection[qIdx].add(v);
+    }
+    if (otherTail !== null) {
+      selection[qIdx].add(OTHER_TOKEN);
+      if (otherTail.startsWith('Other:')) {
+        otherTextByKey[questionCacheKey(questions[qIdx])] = otherTail.slice('Other:'.length).trim();
       }
     }
   }

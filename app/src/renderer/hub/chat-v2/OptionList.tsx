@@ -831,18 +831,23 @@ export function deriveSubmissionFromTranscript(
     }
   }
 
-  // "Other: <text>" reply — single-section pickers map to section 0.
-  // Multi-section currently always emits `Other: ...` on its own line so
-  // section attribution is best-effort by label prefix; fall back to 0.
+  // "Other: <text>" reply. Single-section pickers map unambiguously to
+  // section 0. Multi-section requires a label prefix to attribute the
+  // answer; if the label is missing or doesn't match any known section,
+  // drop the entry rather than guess — guessing risks rendering a
+  // historical receipt as if a different section had been chosen.
   const otherMatches = Array.from(text.matchAll(/(?:^|\n)[^\n]*?Other:\s*([^\n]+)/g));
   for (const m of otherMatches) {
-    let target = 0;
-    if (sections.length > 1) {
+    let target: number;
+    if (sections.length === 1) {
+      target = 0;
+    } else {
       const line = m[0];
       const labelMatch = line.match(/(?:^|\n)-\s*([^:]+):\s*Other:/);
       const label = labelMatch?.[1].trim();
       const idx = label ? sections.findIndex((s) => s.label === label) : -1;
-      target = idx >= 0 ? idx : 0;
+      if (idx < 0) continue;
+      target = idx;
     }
     selection[target].add(OTHER_TOKEN);
     otherText[target] = m[1].trim();
