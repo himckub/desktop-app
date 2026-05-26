@@ -355,7 +355,9 @@ function OptionListReady({ payload, sessionId, streaming, cancelled }: ReadyProp
                     <span aria-hidden="true">✎</span>
                   </div>
                   <div className="chatv2-optlist__chosen-text">
-                    <div className="chatv2-optlist__chosen-label">Chose: Other</div>
+                    <div className="chatv2-optlist__chosen-label">
+                      <span className="chatv2-optlist__chosen-title">Other</span>
+                    </div>
                     {(otherTextBySection[sIdx] ?? '').trim() && (
                       <div className="chatv2-optlist__chosen-meta">{otherTextBySection[sIdx]}</div>
                     )}
@@ -561,8 +563,9 @@ function OptionListReady({ payload, sessionId, streaming, cancelled }: ReadyProp
 
 function ChosenReceipt({ opt }: { opt: OptionItem }): React.ReactElement {
   const [imgBroken, setImgBroken] = useState(false);
+  const [faviconBroken, setFaviconBroken] = useState(false);
   const priceField = opt.fields?.Price ?? opt.fields?.price;
-  const meta = [opt.site, priceField].filter(Boolean).join(' · ');
+  const faviconSrc = siteFaviconUrl(opt.url);
 
   return (
     <div className="chatv2-optlist__chosen-receipt">
@@ -579,8 +582,28 @@ function ChosenReceipt({ opt }: { opt: OptionItem }): React.ReactElement {
         )}
       </div>
       <div className="chatv2-optlist__chosen-text">
-        <div className="chatv2-optlist__chosen-label">Chose: {opt.title}</div>
-        {meta && <div className="chatv2-optlist__chosen-meta">{meta}</div>}
+        <div className="chatv2-optlist__chosen-label">
+          <span className="chatv2-optlist__chosen-title">{opt.title}</span>
+        </div>
+        <div className="chatv2-optlist__chosen-meta">
+          {faviconSrc && !faviconBroken && (
+            <img
+              className="chatv2-optlist__chosen-favicon"
+              src={faviconSrc}
+              alt=""
+              width={12}
+              height={12}
+              onError={() => setFaviconBroken(true)}
+            />
+          )}
+          <span className="chatv2-optlist__chosen-site">{opt.site}</span>
+          {priceField && (
+            <>
+              <span className="chatv2-optlist__chosen-sep" aria-hidden="true">·</span>
+              <span className="chatv2-optlist__chosen-price">{priceField}</span>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
