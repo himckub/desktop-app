@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildSkillIndexPrompt, scanSkillIndex } from '../../../src/main/hl/engines/skillIndexPrompt';
+import { buildSkillIndexPrompt, htmlBlockGuidanceLines, scanSkillIndex } from '../../../src/main/hl/engines/skillIndexPrompt';
 
 let harnessDir: string;
 
@@ -74,5 +74,16 @@ describe('skill index prompt', () => {
 
     expect(buildSkillIndexPrompt(harnessDir)).toBe('');
     spy.mockRestore();
+  });
+});
+
+describe('html block prompt guidance', () => {
+  it('nudges agents to use HTML for dense browser confirmation facts', () => {
+    const prompt = htmlBlockGuidanceLines('dark').join('\n');
+
+    expect(prompt).toContain('dense, easily organized browser results or confirmations');
+    expect(prompt).toContain('shopping/cart/order summaries');
+    expect(prompt).toContain('delivery windows');
+    expect(prompt).toContain('3+ concrete facts');
   });
 });
