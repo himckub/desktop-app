@@ -112,11 +112,26 @@
   border-color: var(--color-fg-primary);
   background: var(--color-fg-primary);
 }
+/* Checkmark overlay via a CSS mask so the stroke color follows a theme
+ * variable (--color-bg-base — always the inverse of --color-fg-primary,
+ * the checked fill). Previously the SVG had a hard-coded #111 stroke,
+ * which vanished in light mode where the fill is also near-black. */
 .chatv2-askform__row input[type="checkbox"]:checked {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23111' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 8.5 L7 12 L13 5'/></svg>");
-  background-size: 11px 11px;
-  background-position: center;
-  background-repeat: no-repeat;
+  position: relative;
+}
+.chatv2-askform__row input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: var(--color-bg-base);
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 8.5 L7 12 L13 5'/></svg>");
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 8.5 L7 12 L13 5'/></svg>");
+  -webkit-mask-size: 11px 11px;
+  mask-size: 11px 11px;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 .chatv2-askform__row input:focus-visible {
   outline: 2px solid var(--color-border-strong);
