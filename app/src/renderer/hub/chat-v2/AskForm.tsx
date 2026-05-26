@@ -333,7 +333,6 @@ function QuestionCard({ question, selected, otherText, locked, onToggle, onOther
   return (
     <div className="chatv2-askform__question">
       <div className="chatv2-askform__question-head">
-        {question.header && <span className="chatv2-askform__question-header">{question.header}</span>}
         <span className="chatv2-askform__question-text">{question.question}</span>
       </div>
       <ul className="chatv2-askform__options" role={question.multiSelect ? 'group' : 'radiogroup'}>

@@ -27,13 +27,15 @@
 }
 
 .chatv2-askform__question {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md, 8px);
-  padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 4px 0;
+}
+.chatv2-askform__question + .chatv2-askform__question {
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 14px;
+  margin-top: 6px;
 }
 
 .chatv2-askform__question-head {
@@ -41,17 +43,6 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 10px;
-}
-.chatv2-askform__question-header {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-fg-tertiary);
-  padding: 2px 6px;
-  background: var(--color-bg-base);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-xs, 3px);
 }
 .chatv2-askform__question-text {
   font-size: 14px;
@@ -75,7 +66,8 @@
 .chatv2-askform__row {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 10px;
+  column-gap: 10px;
+  row-gap: 2px;
   align-items: baseline;
   padding: 7px 8px;
   border-radius: var(--radius-sm, 5px);
@@ -85,13 +77,50 @@
 .chatv2-askform__row:hover {
   background: color-mix(in srgb, var(--color-fg-primary) 4%, transparent);
 }
+/* Custom radio + checkbox so the selected state matches the rest of the
+ * UI (single border, single filled dot) instead of the native control's
+ * doubled-up ring that read as visual noise. */
 .chatv2-askform__row input[type="radio"],
 .chatv2-askform__row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
   margin: 0;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--color-border-strong, #555);
+  background: transparent;
   cursor: pointer;
-  accent-color: var(--color-status-success);
-  grid-row: 1 / span 2;
+  display: inline-block;
+  flex-shrink: 0;
+  grid-row: 1;
   align-self: center;
+  transition: border-color var(--duration-fast, 100ms) var(--ease-out, ease),
+              background var(--duration-fast, 100ms) var(--ease-out, ease);
+}
+.chatv2-askform__row input[type="radio"] {
+  border-radius: 50%;
+}
+.chatv2-askform__row input[type="checkbox"] {
+  border-radius: 3px;
+}
+.chatv2-askform__row input[type="radio"]:hover,
+.chatv2-askform__row input[type="checkbox"]:hover {
+  border-color: var(--color-fg-secondary);
+}
+.chatv2-askform__row input[type="radio"]:checked,
+.chatv2-askform__row input[type="checkbox"]:checked {
+  border-color: var(--color-fg-primary);
+  background: var(--color-fg-primary);
+}
+.chatv2-askform__row input[type="checkbox"]:checked {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23111' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 8.5 L7 12 L13 5'/></svg>");
+  background-size: 11px 11px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.chatv2-askform__row input:focus-visible {
+  outline: 2px solid var(--color-border-strong);
+  outline-offset: 2px;
 }
 
 .chatv2-askform__option-label {
@@ -181,11 +210,9 @@
 }
 .chatv2-askform__answer:first-of-type { border-top: 0; }
 .chatv2-askform__answer-label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--color-fg-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 .chatv2-askform__answer-value {
   font-size: 13px;
